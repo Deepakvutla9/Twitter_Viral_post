@@ -1,72 +1,75 @@
-const cron = require('node-cron');
-const { scrapeTrendingTweets } = require('./xScraper');
-const { generateMultiplePosts } = require('./gemini');
-const { postToInstagram } = require('./instagram');
+const { fetchNewsArticle } = require('./newsScraper');
+const { generateCarouselSlides } = require('./gemini');
+const { composeSlideImages } = require('./imageComposer');
+const { postCarousel } = require('./instagram');
 
-let activeJob = null;
+const AUTO_TOPICS = [
+  'OpenAI',
+  'Anthropic',
+  'AI layoffs',
+  'Google AI',
+  'AI model release',
+  'AI funding',
+  'AI regulation',
+  'AI jobs',
+  'artificial intelligence',
+  'machine learning',
+];
+
+let topicIndex = 0;
+
 let jobStatus = {
   running: false,
   schedule: null,
-  topic: null,
   lastRun: null,
   lastResult: null,
+  nextTopic: AUTO_TOPICS[0],
+  totalPosted: 0,
 };
 
-async function runPipeline(topic, count = 5) {
-  console.log(`[Pipeline] Starting for topic: "${topic}"`);
-  jobStatus.lastRun = new Date().toISOString();
+async function runPipeline() {
+  const topic = AUTO_TOPICS[topicIndex % AUTO_TOPICS.length];
+  topicIndex++;
 
-  const tweets = await scrapeTrendingTweets(topic, count);
-  console.log(`[Pipeline] Scraped ${tweets.length} tweets`);
+  jobStatus.nextTopic = AUTO_TOPICS[topicIndex % AUTO_TOPICS.length];
+  jobStatus.lastRun   = new Date().toISOString();
 
-  const posts = await generateMultiplePosts(tweets, topic);
-  console.log(`[Pipeline] Generated ${posts.length} IG captions`);
+  console.log(`[Pipeline] Running — topic: "${topic}"`);
 
-  const results = [];
-  for (const post of posts) {
-    try {
-      const postId = await postToInstagram(post.caption);
-      results.push({ success: true, postId, caption: post.caption });
-      console.log(`[Pipeline] Posted to IG: ${postId}`);
-      // Respect Instagram rate limits — wait 30s between posts
-      await new Promise((r) => setTimeout(r, 30000));
-    } catch (err) {
-      results.push({ success: false, error: err.message, caption: post.caption });
-      console.error(`[Pipeline] IG post failed:`, err.message);
-    }
-  }
+  const article = await fetchNewsArticle(topic);
+  console.log(`[Pipeline] Fetched: "${article.title}" (${article.points} pts)`);
 
-  jobStatus.lastResult = results;
-  return results;
+  const { slides, caption } = await generateCarouselSlides(article, topic);
+  console.log(`[Pipeline] Generated ${slides.length} slides`);
+
+  const images = await composeSlideImages(slides);
+  const imagePaths = images.map((i) => i.filepath);
+
+  const postId = await postCarousel(imagePaths, caption);
+  jobStatus.totalPosted++;
+
+  const result = {
+    success: true,
+    postId,
+    topic,
+    article: article.title,
+    postedAt: new Date().toISOString(),
+  };
+  jobStatus.lastResult = result;
+
+  console.log(`[Pipeline] Posted carousel: ${postId} (total: ${jobStatus.totalPosted})`);
+  return result;
 }
 
-function startScheduler(cronExpression, topic, count = 5) {
-  if (activeJob) {
-    activeJob.stop();
-  }
-
-  jobStatus.running = true;
+// Called by the scheduler route when cron-job.org hits /api/scheduler/run
+function startScheduler(cronExpression) {
+  jobStatus.running  = true;
   jobStatus.schedule = cronExpression;
-  jobStatus.topic = topic;
-
-  activeJob = cron.schedule(cronExpression, async () => {
-    try {
-      await runPipeline(topic, count);
-    } catch (err) {
-      console.error('[Scheduler] Pipeline error:', err.message);
-      jobStatus.lastResult = { error: err.message };
-    }
-  });
-
-  console.log(`[Scheduler] Started — topic: "${topic}", schedule: ${cronExpression}`);
+  console.log(`[Scheduler] Marked active — schedule managed by cron-job.org: ${cronExpression}`);
   return jobStatus;
 }
 
 function stopScheduler() {
-  if (activeJob) {
-    activeJob.stop();
-    activeJob = null;
-  }
   jobStatus.running = false;
   return jobStatus;
 }
@@ -75,4 +78,7 @@ function getStatus() {
   return jobStatus;
 }
 
-module.exports = { runPipeline, startScheduler, stopScheduler, getStatus };
+// No-op on cloud — state is in-memory only, cron-job.org drives timing
+function autoResume() {}
+
+module.exports = { runPipeline, startScheduler, stopScheduler, getStatus, autoResume };

@@ -1,24 +1,21 @@
 import axios from 'axios';
 
-const api = axios.create({ baseURL: 'http://localhost:3001/api' });
+const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api' });
 
-export const scrapeTweets = (topic, count) =>
-  api.post('/scrape', { topic, count }).then((r) => r.data.tweets);
+export const fetchNews = (topic) =>
+  api.post('/scrape', { topic }).then((r) => r.data.article);
 
-export const generatePosts = (tweets, topic) =>
-  api.post('/generate', { tweets, topic }).then((r) => r.data.posts);
+export const generateSlides = (article, topic) =>
+  api.post('/generate', { article, topic }).then((r) => r.data);
 
-export const regenerateCaption = (tweet, topic) =>
-  api.post('/generate/single', { tweet, topic }).then((r) => r.data.caption);
+export const postCarousel = (imagePaths, caption) =>
+  api.post('/instagram/carousel', { imagePaths, caption }).then((r) => r.data);
 
-export const postToInstagram = (caption, imageUrl) =>
-  api.post('/instagram/post', { caption, imageUrl }).then((r) => r.data);
+export const runPipeline = () =>
+  api.post('/scheduler/run').then((r) => r.data);
 
-export const runPipeline = (topic, count) =>
-  api.post('/scheduler/run', { topic, count }).then((r) => r.data);
-
-export const startScheduler = (cronExpression, topic, count) =>
-  api.post('/scheduler/start', { cronExpression, topic, count }).then((r) => r.data);
+export const startScheduler = (cronExpression) =>
+  api.post('/scheduler/start', { cronExpression }).then((r) => r.data);
 
 export const stopScheduler = () =>
   api.post('/scheduler/stop').then((r) => r.data);

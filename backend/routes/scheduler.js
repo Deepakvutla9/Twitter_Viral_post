@@ -7,11 +7,9 @@ router.get('/status', (req, res) => {
 });
 
 router.post('/start', (req, res) => {
-  const { cronExpression, topic, count } = req.body;
-  if (!cronExpression || !topic) {
-    return res.status(400).json({ error: 'cronExpression and topic are required' });
-  }
-  const status = startScheduler(cronExpression, topic, count);
+  const { cronExpression } = req.body;
+  if (!cronExpression) return res.status(400).json({ error: 'cronExpression is required' });
+  const status = startScheduler(cronExpression);
   res.json({ success: true, status });
 });
 
@@ -20,14 +18,10 @@ router.post('/stop', (req, res) => {
   res.json({ success: true, status });
 });
 
-// Trigger the full pipeline manually (scrape → generate → post)
 router.post('/run', async (req, res) => {
-  const { topic, count = 5 } = req.body;
-  if (!topic) return res.status(400).json({ error: 'topic is required' });
-
   try {
-    const results = await runPipeline(topic, count);
-    res.json({ success: true, results });
+    const result = await runPipeline();
+    res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const { postToInstagram } = require('../services/instagram');
+const { postCarousel } = require('../services/instagram');
 
-router.post('/post', async (req, res) => {
-  const { caption, imageUrl } = req.body;
+router.post('/carousel', async (req, res) => {
+  const { imagePaths, caption } = req.body;
+  if (!imagePaths || !imagePaths.length) return res.status(400).json({ error: 'imagePaths are required' });
   if (!caption) return res.status(400).json({ error: 'caption is required' });
 
   try {
-    const postId = await postToInstagram(caption, imageUrl);
+    const postId = await postCarousel(imagePaths, caption);
     res.json({ success: true, postId });
   } catch (err) {
     res.status(500).json({ error: err.message });

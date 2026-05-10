@@ -1,0 +1,5 @@
+node_modules
+.env
+temp/
+posted-history.json
+scheduler-state.json

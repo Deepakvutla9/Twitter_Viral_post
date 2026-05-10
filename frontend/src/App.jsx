@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import {
-  scrapeTweets,
-  generatePosts,
-  regenerateCaption,
-  postToInstagram,
+  fetchNews,
+  generateSlides,
+  postCarousel,
   runPipeline,
   startScheduler,
   stopScheduler,
@@ -19,18 +18,21 @@ const CRON_PRESETS = [
   { label: 'Twice a day', value: '0 9,18 * * *' },
 ];
 
+const IMG_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').replace('/api', '');
+
 export default function App() {
   const [topic, setTopic] = useState('');
-  const [count, setCount] = useState(5);
-  const [tweets, setTweets] = useState([]);
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState({ scrape: false, generate: false, pipeline: false });
+  const [article, setArticle] = useState(null);
+  const [slides, setSlides] = useState([]);
+  const [caption, setCaption] = useState('');
+  const [imageUrls, setImageUrls] = useState([]);
+  const [imagePaths, setImagePaths] = useState([]);
+  const [loading, setLoading] = useState({ news: false, generate: false, post: false, pipeline: false });
   const [error, setError] = useState(null);
-  const [posting, setPosting] = useState({});
-  const [posted, setPosted] = useState({});
+  const [posted, setPosted] = useState(null);
+  const [activeTab, setActiveTab] = useState('manual');
   const [schedulerStatus, setSchedulerStatus] = useState(null);
   const [cronExpression, setCronExpression] = useState('0 9 * * *');
-  const [activeTab, setActiveTab] = useState('manual');
 
   useEffect(() => {
     fetchStatus();
@@ -39,39 +41,44 @@ export default function App() {
   }, []);
 
   async function fetchStatus() {
-    try {
-      const status = await getSchedulerStatus();
-      setSchedulerStatus(status);
-    } catch {}
+    try { setSchedulerStatus(await getSchedulerStatus()); } catch {}
   }
 
   function setLoad(key, val) {
-    setLoading((prev) => ({ ...prev, [key]: val }));
+    setLoading((p) => ({ ...p, [key]: val }));
   }
 
-  async function handleScrape() {
+  async function handleFetchNews() {
     if (!topic.trim()) return setError('Please enter a topic');
     setError(null);
-    setLoad('scrape', true);
-    setPosts([]);
-    setTweets([]);
+    setArticle(null);
+    setSlides([]);
+    setImageUrls([]);
+    setPosted(null);
+    setLoad('news', true);
     try {
-      const result = await scrapeTweets(topic, count);
-      setTweets(result);
+      const art = await fetchNews(topic);
+      setArticle(art);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     } finally {
-      setLoad('scrape', false);
+      setLoad('news', false);
     }
   }
 
   async function handleGenerate() {
-    if (!tweets.length) return;
+    if (!article) return;
     setError(null);
+    setSlides([]);
+    setImageUrls([]);
+    setPosted(null);
     setLoad('generate', true);
     try {
-      const result = await generatePosts(tweets, topic);
-      setPosts(result);
+      const result = await generateSlides(article, topic);
+      setSlides(result.slides);
+      setCaption(result.caption);
+      setImageUrls(result.imageUrls);
+      setImagePaths(result.imagePaths);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     } finally {
@@ -79,40 +86,25 @@ export default function App() {
     }
   }
 
-  async function handleRegenerate(index) {
-    const tweet = posts[index].tweet;
+  async function handlePost() {
+    setError(null);
+    setLoad('post', true);
     try {
-      const caption = await regenerateCaption(tweet, topic);
-      setPosts((prev) => {
-        const updated = [...prev];
-        updated[index] = { ...updated[index], caption };
-        return updated;
-      });
-    } catch (e) {
-      setError(e.response?.data?.error || e.message);
-    }
-  }
-
-  async function handlePost(index) {
-    const { caption } = posts[index];
-    setPosting((prev) => ({ ...prev, [index]: true }));
-    try {
-      const result = await postToInstagram(caption);
-      setPosted((prev) => ({ ...prev, [index]: result.postId }));
+      const result = await postCarousel(imagePaths, caption);
+      setPosted(result.postId);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     } finally {
-      setPosting((prev) => ({ ...prev, [index]: false }));
+      setLoad('post', false);
     }
   }
 
   async function handleRunPipeline() {
-    if (!topic.trim()) return setError('Please enter a topic');
     setError(null);
     setLoad('pipeline', true);
     try {
-      const result = await runPipeline(topic, count);
-      alert(`Pipeline complete! ${result.results.filter((r) => r.success).length} posts published.`);
+      const result = await runPipeline();
+      alert(`Posted! "${result.article}"`);
       fetchStatus();
     } catch (e) {
       setError(e.response?.data?.error || e.message);
@@ -122,9 +114,8 @@ export default function App() {
   }
 
   async function handleStartScheduler() {
-    if (!topic.trim()) return setError('Please enter a topic');
     try {
-      await startScheduler(cronExpression, topic, count);
+      await startScheduler(cronExpression);
       fetchStatus();
     } catch (e) {
       setError(e.response?.data?.error || e.message);
@@ -132,69 +123,40 @@ export default function App() {
   }
 
   async function handleStopScheduler() {
-    try {
-      await stopScheduler();
-      fetchStatus();
-    } catch (e) {
-      setError(e.response?.data?.error || e.message);
-    }
-  }
-
-  function updateCaption(index, value) {
-    setPosts((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], caption: value };
-      return updated;
-    });
+    try { await stopScheduler(); fetchStatus(); } catch (e) { setError(e.message); }
   }
 
   return (
     <div className="app">
       <header className="header">
         <div className="header-inner">
-          <h1>🚀 Viral Post Automator</h1>
-          <p>Scrape trending X posts → AI rewrite → Auto-post to Instagram</p>
+          <h1>📸 Carousel Story Automator</h1>
+          <p>Fetch trending news → AI story → Post as Instagram carousel</p>
         </div>
       </header>
 
       <main className="main">
         <section className="card config-card">
-          <h2>Configuration</h2>
+          <h2>Topic</h2>
           <div className="config-row">
             <div className="field">
-              <label>Topic / Keyword</label>
+              <label>What's the story about?</label>
               <input
                 type="text"
-                placeholder="e.g. AI, Bitcoin, Tesla, Cricket..."
+                placeholder="e.g. AI, Bitcoin, Climate, Cricket..."
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleScrape()}
-              />
-            </div>
-            <div className="field field-sm">
-              <label>Number of posts</label>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={count}
-                onChange={(e) => setCount(Number(e.target.value))}
+                onKeyDown={(e) => e.key === 'Enter' && handleFetchNews()}
               />
             </div>
           </div>
         </section>
 
         <div className="tabs">
-          <button
-            className={activeTab === 'manual' ? 'tab active' : 'tab'}
-            onClick={() => setActiveTab('manual')}
-          >
+          <button className={activeTab === 'manual' ? 'tab active' : 'tab'} onClick={() => setActiveTab('manual')}>
             Manual Mode
           </button>
-          <button
-            className={activeTab === 'auto' ? 'tab active' : 'tab'}
-            onClick={() => setActiveTab('auto')}
-          >
+          <button className={activeTab === 'auto' ? 'tab active' : 'tab'} onClick={() => setActiveTab('auto')}>
             Auto Scheduler
           </button>
         </div>
@@ -205,80 +167,70 @@ export default function App() {
           <section className="card">
             <h2>Manual Pipeline</h2>
             <div className="button-row">
-              <button className="btn btn-primary" onClick={handleScrape} disabled={loading.scrape}>
-                {loading.scrape ? 'Scraping...' : '🔍 Scrape X Tweets'}
+              <button className="btn btn-primary" onClick={handleFetchNews} disabled={loading.news}>
+                {loading.news ? 'Fetching...' : '🔍 Fetch News'}
               </button>
-              <button
-                className="btn btn-secondary"
-                onClick={handleGenerate}
-                disabled={!tweets.length || loading.generate}
-              >
-                {loading.generate ? 'Generating...' : '✨ Generate IG Captions'}
+              <button className="btn btn-secondary" onClick={handleGenerate} disabled={!article || loading.generate}>
+                {loading.generate ? 'Generating...' : '✨ Generate Carousel'}
               </button>
-              <button
-                className="btn btn-danger"
-                onClick={handleRunPipeline}
-                disabled={loading.pipeline}
-              >
-                {loading.pipeline ? 'Running...' : '⚡ Run Full Pipeline'}
+              <button className="btn btn-danger" onClick={handleRunPipeline} disabled={loading.pipeline}>
+                {loading.pipeline ? 'Running...' : '⚡ Auto Run'}
               </button>
             </div>
 
-            {tweets.length > 0 && posts.length === 0 && (
-              <div className="tweets-section">
-                <h3>Scraped Tweets ({tweets.length})</h3>
-                <div className="tweet-list">
-                  {tweets.map((t, i) => (
-                    <div key={i} className="tweet-card">
-                      <p className="tweet-text">{t.text}</p>
-                      <div className="tweet-meta">
-                        <span>@{t.username}</span>
-                        <span>❤️ {t.likes}</span>
-                        <span>🔁 {t.retweets}</span>
-                      </div>
-                    </div>
-                  ))}
+            {article && (
+              <div className="article-card">
+                <div className="article-meta">
+                  <span className="source-badge">{article.source}</span>
+                  {article.pubDate && <span className="pub-date">{new Date(article.pubDate).toLocaleDateString()}</span>}
                 </div>
+                <h3 className="article-title">{article.title}</h3>
+                <p className="article-preview">{article.fullText.slice(0, 200)}...</p>
+                <a href={article.url} target="_blank" rel="noreferrer" className="article-link">
+                  Read full article →
+                </a>
               </div>
             )}
 
-            {posts.length > 0 && (
-              <div className="posts-section">
-                <h3>Generated Instagram Posts ({posts.length})</h3>
-                <div className="post-list">
-                  {posts.map((p, i) => (
-                    <div key={i} className="post-card">
-                      <div className="post-source">
-                        <span className="label">Source tweet:</span>
-                        <p className="tweet-preview">{p.tweet.text}</p>
-                      </div>
-                      <div className="post-caption">
-                        <label>Instagram Caption (editable)</label>
-                        <textarea
-                          value={p.caption}
-                          onChange={(e) => updateCaption(i, e.target.value)}
-                          rows={8}
+            {slides.length > 0 && (
+              <div className="carousel-preview">
+                <h3>Carousel Preview ({slides.length} slides)</h3>
+                <div className="slides-grid">
+                  {slides.map((slide, i) => (
+                    <div key={i} className="slide-card">
+                      {imageUrls[i] && (
+                        <img
+                          src={`${IMG_BASE}${imageUrls[i]}`}
+                          alt={`Slide ${i + 1}`}
+                          className="slide-img"
                         />
-                      </div>
-                      <div className="post-actions">
-                        <button className="btn btn-sm" onClick={() => handleRegenerate(i)}>
-                          🔄 Regenerate
-                        </button>
-                        {posted[i] ? (
-                          <span className="posted-badge">✅ Posted (ID: {posted[i]})</span>
-                        ) : (
-                          <button
-                            className="btn btn-sm btn-instagram"
-                            onClick={() => handlePost(i)}
-                            disabled={posting[i]}
-                          >
-                            {posting[i] ? 'Posting...' : '📸 Post to Instagram'}
-                          </button>
-                        )}
+                      )}
+                      <div className="slide-info">
+                        <span className="slide-type">{slide.type}</span>
+                        <p className="slide-headline">{slide.headline}</p>
                       </div>
                     </div>
                   ))}
                 </div>
+
+                <div className="caption-section">
+                  <label>Instagram Caption (editable)</label>
+                  <textarea
+                    value={caption}
+                    onChange={(e) => setCaption(e.target.value)}
+                    rows={6}
+                  />
+                </div>
+
+                {posted ? (
+                  <div className="posted-success">
+                    ✅ Carousel posted! Instagram Post ID: <strong>{posted}</strong>
+                  </div>
+                ) : (
+                  <button className="btn btn-instagram btn-full" onClick={handlePost} disabled={loading.post}>
+                    {loading.post ? 'Posting carousel...' : '📸 Post Carousel to Instagram'}
+                  </button>
+                )}
               </div>
             )}
           </section>
@@ -288,68 +240,68 @@ export default function App() {
           <section className="card">
             <h2>Auto Scheduler</h2>
             <p className="help-text">
-              Set a schedule and the app will automatically scrape, generate, and post to Instagram.
+              Fully automated — picks the most viral AI news, generates a carousel, and posts to Instagram.
+              No input needed. Topics rotate automatically across OpenAI, Anthropic, AI layoffs, model releases, and more.
             </p>
 
-            <div className="field">
-              <label>Schedule Preset</label>
+            <div className="field" style={{ marginBottom: '1rem' }}>
+              <label>How often to post</label>
               <select value={cronExpression} onChange={(e) => setCronExpression(e.target.value)}>
                 {CRON_PRESETS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label} ({p.value})
-                  </option>
+                  <option key={p.value} value={p.value}>{p.label}</option>
                 ))}
               </select>
             </div>
 
             <div className="scheduler-actions">
-              <button
-                className="btn btn-primary"
-                onClick={handleStartScheduler}
-                disabled={schedulerStatus?.running}
-              >
-                ▶ Start Scheduler
+              <button className="btn btn-primary" onClick={handleStartScheduler} disabled={schedulerStatus?.running}>
+                ▶ Start Posting
               </button>
-              <button
-                className="btn btn-danger"
-                onClick={handleStopScheduler}
-                disabled={!schedulerStatus?.running}
-              >
-                ⏹ Stop Scheduler
+              <button className="btn btn-danger" onClick={handleStopScheduler} disabled={!schedulerStatus?.running}>
+                ⏹ Stop
+              </button>
+              <button className="btn btn-secondary" onClick={handleRunPipeline} disabled={loading.pipeline}>
+                {loading.pipeline ? 'Posting...' : '⚡ Post One Now'}
               </button>
             </div>
 
             {schedulerStatus && (
               <div className={`status-box ${schedulerStatus.running ? 'status-active' : ''}`}>
                 <div className="status-row">
-                  <span>Status:</span>
+                  <span>Status</span>
                   <strong>{schedulerStatus.running ? '🟢 Running' : '🔴 Stopped'}</strong>
                 </div>
-                {schedulerStatus.topic && (
-                  <div className="status-row">
-                    <span>Topic:</span>
-                    <strong>{schedulerStatus.topic}</strong>
-                  </div>
-                )}
                 {schedulerStatus.schedule && (
                   <div className="status-row">
-                    <span>Schedule:</span>
-                    <strong>{schedulerStatus.schedule}</strong>
+                    <span>Schedule</span>
+                    <strong>{CRON_PRESETS.find(p => p.value === schedulerStatus.schedule)?.label || schedulerStatus.schedule}</strong>
+                  </div>
+                )}
+                {schedulerStatus.nextTopic && (
+                  <div className="status-row">
+                    <span>Next topic</span>
+                    <strong>{schedulerStatus.nextTopic}</strong>
                   </div>
                 )}
                 {schedulerStatus.lastRun && (
                   <div className="status-row">
-                    <span>Last run:</span>
+                    <span>Last run</span>
                     <strong>{new Date(schedulerStatus.lastRun).toLocaleString()}</strong>
+                  </div>
+                )}
+                {schedulerStatus.totalPosted > 0 && (
+                  <div className="status-row">
+                    <span>Total posted</span>
+                    <strong>{schedulerStatus.totalPosted} carousels</strong>
                   </div>
                 )}
                 {schedulerStatus.lastResult && (
                   <div className="status-row">
-                    <span>Last result:</span>
+                    <span>Last post</span>
                     <strong>
-                      {Array.isArray(schedulerStatus.lastResult)
-                        ? `${schedulerStatus.lastResult.filter((r) => r.success).length}/${schedulerStatus.lastResult.length} posted`
-                        : JSON.stringify(schedulerStatus.lastResult)}
+                      {schedulerStatus.lastResult.success
+                        ? `✅ "${schedulerStatus.lastResult.article?.slice(0, 50)}..."`
+                        : `❌ ${schedulerStatus.lastResult.error}`}
                     </strong>
                   </div>
                 )}
@@ -357,42 +309,6 @@ export default function App() {
             )}
           </section>
         )}
-
-        <section className="card setup-card">
-          <h2>⚙️ Setup Checklist</h2>
-          <div className="checklist">
-            <div className="check-item">
-              <span className="check-num">1</span>
-              <div>
-                <strong>Gemini API Key</strong>
-                <p>
-                  Get a free key at aistudio.google.com. Add to <code>backend/.env</code> as{' '}
-                  <code>GEMINI_API_KEY</code>
-                </p>
-              </div>
-            </div>
-            <div className="check-item">
-              <span className="check-num">2</span>
-              <div>
-                <strong>Instagram Graph API</strong>
-                <p>
-                  Convert Instagram to Business/Creator → Link to Facebook Page → Create Meta App →
-                  Get long-lived token. Add <code>INSTAGRAM_ACCESS_TOKEN</code> &{' '}
-                  <code>INSTAGRAM_USER_ID</code> to <code>backend/.env</code>
-                </p>
-              </div>
-            </div>
-            <div className="check-item">
-              <span className="check-num">3</span>
-              <div>
-                <strong>Start backend</strong>
-                <p>
-                  Run <code>cd backend && npm start</code>
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
       </main>
     </div>
   );
