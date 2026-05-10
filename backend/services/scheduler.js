@@ -1,4 +1,4 @@
-const { fetchNewsArticle } = require('./newsScraper');
+const { fetchNewsArticle, markPosted } = require('./newsScraper');
 const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
@@ -46,6 +46,7 @@ async function runPipeline() {
   const imagePaths = images.map((i) => i.filepath);
 
   const postId = await postCarousel(imagePaths, caption);
+  await markPosted(article.url);
   jobStatus.totalPosted++;
 
   const result = {

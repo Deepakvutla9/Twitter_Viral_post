@@ -2,8 +2,8 @@ import axios from 'axios';
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api' });
 
-export const fetchNews = (topic) =>
-  api.post('/scrape', { topic }).then((r) => r.data.article);
+export const fetchNews = (topic, exclude = []) =>
+  api.post('/scrape', { topic, exclude }).then((r) => r.data.article);
 
 export const generateSlides = (article, topic) =>
   api.post('/generate', { article, topic }).then((r) => r.data);

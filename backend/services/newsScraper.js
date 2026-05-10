@@ -93,7 +93,7 @@ async function scrapeArticle(url) {
   return all.slice(0, 10).join('\n\n');
 }
 
-async function fetchNewsArticle(topic) {
+async function fetchNewsArticle(topic, exclude = []) {
   console.log(`[Scraper] Searching for viral AI news (topic hint: "${topic}")`);
 
   const queries = [topic, ...AI_QUERIES].slice(0, 8);
@@ -101,10 +101,12 @@ async function fetchNewsArticle(topic) {
 
   const seen = new Set();
   const history = await loadHistory();
+  const excludeSet = new Set(exclude);
+
   const allHits = results
     .flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
     .filter((h) => {
-      if (seen.has(h.url) || history.has(h.url)) return false;
+      if (seen.has(h.url) || history.has(h.url) || excludeSet.has(h.url)) return false;
       seen.add(h.url);
       return true;
     })
@@ -126,7 +128,7 @@ async function fetchNewsArticle(topic) {
       const fullText = await scrapeArticle(url);
       if (fullText.length > 200) {
         console.log(`[Scraper] Got "${title}" — ${fullText.length} chars`);
-        await markPosted(url);
+        // Don't mark posted here — only mark after actual Instagram post
         return { title, url, source, pubDate, fullText, points: hit.points };
       }
     } catch (e) {
@@ -135,7 +137,6 @@ async function fetchNewsArticle(topic) {
   }
 
   const hit = allHits[0];
-  await markPosted(hit.url);
   return {
     title: hit.title,
     url: hit.url,

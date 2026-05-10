@@ -23,6 +23,7 @@ const IMG_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3001/api').r
 export default function App() {
   const [topic, setTopic] = useState('');
   const [article, setArticle] = useState(null);
+  const [seenUrls, setSeenUrls] = useState([]);
   const [slides, setSlides] = useState([]);
   const [caption, setCaption] = useState('');
   const [imageUrls, setImageUrls] = useState([]);
@@ -48,17 +49,18 @@ export default function App() {
     setLoading((p) => ({ ...p, [key]: val }));
   }
 
-  async function handleFetchNews() {
+  async function handleFetchNews(refresh = false) {
     if (!topic.trim()) return setError('Please enter a topic');
     setError(null);
-    setArticle(null);
     setSlides([]);
     setImageUrls([]);
     setPosted(null);
     setLoad('news', true);
     try {
-      const art = await fetchNews(topic);
+      const exclude = refresh && article ? [...seenUrls] : [];
+      const art = await fetchNews(topic, exclude);
       setArticle(art);
+      setSeenUrls((prev) => [...new Set([...prev, art.url])]);
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     } finally {
@@ -145,8 +147,8 @@ export default function App() {
                 type="text"
                 placeholder="e.g. AI, Bitcoin, Climate, Cricket..."
                 value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleFetchNews()}
+                onChange={(e) => { setTopic(e.target.value); setSeenUrls([]); }}
+                onKeyDown={(e) => e.key === 'Enter' && handleFetchNews(false)}
               />
             </div>
           </div>
@@ -167,9 +169,14 @@ export default function App() {
           <section className="card">
             <h2>Manual Pipeline</h2>
             <div className="button-row">
-              <button className="btn btn-primary" onClick={handleFetchNews} disabled={loading.news}>
+              <button className="btn btn-primary" onClick={() => handleFetchNews(false)} disabled={loading.news}>
                 {loading.news ? 'Fetching...' : '🔍 Fetch News'}
               </button>
+              {article && (
+                <button className="btn btn-secondary" onClick={() => handleFetchNews(true)} disabled={loading.news}>
+                  {loading.news ? 'Fetching...' : '🔄 Different Article'}
+                </button>
+              )}
               <button className="btn btn-secondary" onClick={handleGenerate} disabled={!article || loading.generate}>
                 {loading.generate ? 'Generating...' : '✨ Generate Carousel'}
               </button>
