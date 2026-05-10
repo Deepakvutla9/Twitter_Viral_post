@@ -1,0 +1,166 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0f0f0f;
+  color: #e0e0e0;
+  min-height: 100vh;
+}
+
+.app { min-height: 100vh; }
+
+.header {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  border-bottom: 1px solid #222;
+  padding: 2rem 1.5rem;
+}
+
+.header-inner { max-width: 900px; margin: 0 auto; }
+.header h1 { font-size: 1.8rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; }
+.header p { color: #8899aa; font-size: 0.95rem; }
+
+.main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.card {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.card h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 1rem; color: #fff; }
+
+.config-row { display: flex; gap: 1rem; align-items: flex-end; }
+.field { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
+.field-sm { flex: 0 0 130px; }
+
+.field label {
+  font-size: 0.8rem; color: #888; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+
+.field input, .field select {
+  background: #111; border: 1px solid #333; border-radius: 8px;
+  padding: 0.6rem 0.9rem; color: #e0e0e0; font-size: 0.95rem;
+  outline: none; transition: border-color 0.2s;
+}
+
+.field input:focus, .field select:focus { border-color: #4a90d9; }
+
+.tabs { display: flex; gap: 0.5rem; }
+
+.tab {
+  background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px;
+  padding: 0.5rem 1.2rem; color: #888; cursor: pointer;
+  font-size: 0.9rem; transition: all 0.2s;
+}
+
+.tab:hover { border-color: #444; color: #ccc; }
+.tab.active { background: #1e3a5f; border-color: #4a90d9; color: #fff; }
+
+.error-banner {
+  background: #2a1010; border: 1px solid #5a2020;
+  border-radius: 8px; padding: 0.8rem 1rem;
+  color: #ff6b6b; font-size: 0.9rem;
+}
+
+.button-row { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
+
+.btn {
+  border: none; border-radius: 8px; padding: 0.6rem 1.2rem;
+  font-size: 0.9rem; font-weight: 500; cursor: pointer; transition: all 0.2s;
+}
+
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary { background: #1e3a5f; color: #7ab8ff; border: 1px solid #2d5a8e; }
+.btn-primary:hover:not(:disabled) { background: #2d5a8e; }
+
+.btn-secondary { background: #1a2e1a; color: #7acc7a; border: 1px solid #2d5a2d; }
+.btn-secondary:hover:not(:disabled) { background: #2d5a2d; }
+
+.btn-danger { background: #2e1a1a; color: #ff8080; border: 1px solid #5a2d2d; }
+.btn-danger:hover:not(:disabled) { background: #5a2d2d; }
+
+.btn-sm { padding: 0.4rem 0.9rem; font-size: 0.85rem; background: #222; color: #aaa; border: 1px solid #333; }
+.btn-sm:hover:not(:disabled) { background: #2a2a2a; color: #ccc; }
+
+.btn-instagram { background: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045); color: #fff; border: none; }
+.btn-instagram:hover:not(:disabled) { opacity: 0.85; }
+
+.tweets-section, .posts-section { margin-top: 1rem; }
+.tweets-section h3, .posts-section h3 { font-size: 0.95rem; color: #888; margin-bottom: 0.8rem; }
+.tweet-list, .post-list { display: flex; flex-direction: column; gap: 0.8rem; }
+
+.tweet-card { background: #111; border: 1px solid #2a2a2a; border-radius: 8px; padding: 0.9rem; }
+.tweet-text { font-size: 0.9rem; line-height: 1.5; color: #ccc; margin-bottom: 0.5rem; }
+.tweet-meta { display: flex; gap: 1rem; font-size: 0.78rem; color: #555; }
+
+.post-card {
+  background: #111; border: 1px solid #2a2a2a; border-radius: 10px;
+  padding: 1rem; display: flex; flex-direction: column; gap: 0.8rem;
+}
+
+.post-source .label { font-size: 0.75rem; color: #555; text-transform: uppercase; letter-spacing: 0.05em; }
+.tweet-preview { font-size: 0.82rem; color: #666; margin-top: 0.3rem; line-height: 1.4; }
+
+.post-caption label {
+  font-size: 0.75rem; color: #555; text-transform: uppercase;
+  letter-spacing: 0.05em; display: block; margin-bottom: 0.4rem;
+}
+
+.post-caption textarea {
+  width: 100%; background: #0a0a0a; border: 1px solid #333;
+  border-radius: 8px; padding: 0.7rem; color: #ddd;
+  font-size: 0.88rem; line-height: 1.5; resize: vertical;
+  outline: none; font-family: inherit;
+}
+
+.post-caption textarea:focus { border-color: #444; }
+.post-actions { display: flex; gap: 0.6rem; align-items: center; }
+.posted-badge { font-size: 0.85rem; color: #7acc7a; }
+
+.help-text { color: #666; font-size: 0.88rem; margin-bottom: 1rem; }
+.scheduler-actions { display: flex; gap: 0.8rem; margin: 1rem 0; }
+
+.status-box {
+  background: #111; border: 1px solid #2a2a2a;
+  border-radius: 8px; padding: 1rem;
+  display: flex; flex-direction: column; gap: 0.5rem; margin-top: 1rem;
+}
+
+.status-box.status-active { border-color: #1a4a1a; background: #0a150a; }
+
+.status-row { display: flex; gap: 0.8rem; font-size: 0.88rem; }
+.status-row span { color: #555; min-width: 90px; }
+.status-row strong { color: #ccc; }
+
+.setup-card { border-color: #1e2e1e; }
+.checklist { display: flex; flex-direction: column; gap: 1rem; }
+.check-item { display: flex; gap: 1rem; align-items: flex-start; }
+
+.check-num {
+  background: #1e3a5f; color: #7ab8ff; border-radius: 50%;
+  width: 28px; height: 28px; display: flex; align-items: center;
+  justify-content: center; font-size: 0.82rem; font-weight: 700; flex-shrink: 0;
+}
+
+.check-item strong { font-size: 0.9rem; color: #ccc; display: block; margin-bottom: 0.3rem; }
+.check-item p { font-size: 0.82rem; color: #666; line-height: 1.5; }
+
+code {
+  background: #222; border: 1px solid #333; border-radius: 4px;
+  padding: 0.1rem 0.4rem; font-family: 'Courier New', monospace;
+  font-size: 0.82rem; color: #aaddff;
+}
