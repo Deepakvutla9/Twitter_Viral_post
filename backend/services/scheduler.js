@@ -1,3 +1,4 @@
+const cron = require('node-cron');
 const { fetchNewsArticle, markPosted } = require('./newsScraper');
 const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
@@ -16,6 +17,7 @@ const AUTO_TOPICS = [
   'machine learning',
 ];
 
+let activeJob = null;
 let topicIndex = 0;
 
 let jobStatus = {
@@ -62,15 +64,27 @@ async function runPipeline() {
   return result;
 }
 
-// Called by the scheduler route when cron-job.org hits /api/scheduler/run
 function startScheduler(cronExpression) {
+  if (activeJob) { activeJob.stop(); activeJob = null; }
+
   jobStatus.running  = true;
   jobStatus.schedule = cronExpression;
-  console.log(`[Scheduler] Marked active — schedule managed by cron-job.org: ${cronExpression}`);
+
+  activeJob = cron.schedule(cronExpression, async () => {
+    try {
+      await runPipeline();
+    } catch (err) {
+      console.error('[Scheduler] Pipeline error:', err.message);
+      jobStatus.lastResult = { success: false, error: err.message };
+    }
+  });
+
+  console.log(`[Scheduler] Started — schedule: ${cronExpression}`);
   return jobStatus;
 }
 
 function stopScheduler() {
+  if (activeJob) { activeJob.stop(); activeJob = null; }
   jobStatus.running = false;
   return jobStatus;
 }
@@ -79,7 +93,6 @@ function getStatus() {
   return jobStatus;
 }
 
-// No-op on cloud — state is in-memory only, cron-job.org drives timing
 function autoResume() {}
 
 module.exports = { runPipeline, startScheduler, stopScheduler, getStatus, autoResume };
