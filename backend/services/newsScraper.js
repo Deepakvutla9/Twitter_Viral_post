@@ -40,57 +40,86 @@ const HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
 };
 
-// Top tech/AI RSS feeds
+const BLOCKED_DOMAINS = ['x.com', 'twitter.com', 'facebook.com', 'instagram.com', 'tiktok.com'];
+
+// ── RSS FEEDS ──────────────────────────────────────────────────────────────
 const RSS_FEEDS = [
   { name: 'TechCrunch AI',     url: 'https://techcrunch.com/category/artificial-intelligence/feed/' },
   { name: 'VentureBeat AI',    url: 'https://venturebeat.com/category/ai/feed/' },
-  { name: 'Ars Technica Tech', url: 'https://feeds.arstechnica.com/arstechnica/technology-lab' },
+  { name: 'Ars Technica',      url: 'https://feeds.arstechnica.com/arstechnica/technology-lab' },
   { name: 'The Verge AI',      url: 'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml' },
-  { name: 'Wired',             url: 'https://www.wired.com/feed/category/artificial-intelligence/latest/rss' },
+  { name: 'Wired AI',          url: 'https://www.wired.com/feed/category/artificial-intelligence/latest/rss' },
   { name: 'MIT Tech Review',   url: 'https://www.technologyreview.com/feed/' },
   { name: 'TechCrunch',        url: 'https://techcrunch.com/feed/' },
-  { name: 'The Verge',         url: 'https://www.theverge.com/rss/index.xml' },
+  // Reddit — viral AI discussions
+  { name: 'Reddit r/artificial',   url: 'https://www.reddit.com/r/artificial/.rss?limit=25' },
+  { name: 'Reddit r/technology',   url: 'https://www.reddit.com/r/technology/.rss?limit=25' },
+  { name: 'Reddit r/Futurology',   url: 'https://www.reddit.com/r/Futurology/.rss?limit=25' },
+  { name: 'Reddit r/MachineLearning', url: 'https://www.reddit.com/r/MachineLearning/.rss?limit=25' },
 ];
 
-// Keywords to score relevance
-const AI_KEYWORDS = [
-  'openai', 'anthropic', 'claude', 'gpt', 'gemini', 'llm', 'chatgpt',
-  'artificial intelligence', ' ai ', 'machine learning', 'deep learning',
-  'neural network', 'layoff', 'fired', 'funding', 'billion', 'regulation',
-  'model', 'robot', 'automation', 'agi', 'nvidia', 'google ai', 'meta ai',
-  'microsoft ai', 'apple ai', 'amazon ai', 'startup', 'tech',
-];
+// ── HACKERNEWS ──────────────────────────────────────────────────────────────
+async function searchHN(query) {
+  try {
+    const since = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60; // last 30 days
+    const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&numericFilters=created_at_i>${since},points>30&hitsPerPage=10`;
+    const res = await axios.get(url, { timeout: 8000 });
+    return res.data.hits
+      .filter((h) => h.url && !h.url.includes('ycombinator.com'))
+      .map((h) => ({
+        title:   h.title,
+        url:     h.url,
+        pubDate: h.created_at,
+        summary: h.story_text || '',
+        source:  'HackerNews',
+        hnPoints: h.points || 0,
+      }));
+  } catch { return []; }
+}
 
+// ── RSS PARSER ──────────────────────────────────────────────────────────────
 async function fetchRSSFeed(feed) {
   try {
     const res = await axios.get(feed.url, { timeout: 8000, headers: HEADERS });
     const parsed = await xml2js.parseStringPromise(res.data, { explicitArray: false });
-
     let items = [];
 
-    // RSS 2.0
     if (parsed.rss?.channel?.item) {
       const raw = parsed.rss.channel.item;
       items = Array.isArray(raw) ? raw : [raw];
-    }
-    // Atom
-    else if (parsed.feed?.entry) {
+    } else if (parsed.feed?.entry) {
       const raw = parsed.feed.entry;
       items = (Array.isArray(raw) ? raw : [raw]).map((e) => ({
-        title: typeof e.title === 'object' ? e.title._ : e.title,
-        link: typeof e.link === 'object' ? (e.link.$ ?.href || e.link) : e.link,
-        pubDate: e.published || e.updated,
+        title:       typeof e.title === 'object' ? e.title._ : e.title,
+        link:        typeof e.link  === 'object' ? (e.link.$?.href || e.link) : e.link,
+        pubDate:     e.published || e.updated,
         description: typeof e.summary === 'object' ? e.summary._ : (e.summary || ''),
       }));
     }
 
-    return items.map((item) => ({
-      title:   typeof item.title === 'object' ? item.title._ : (item.title || ''),
-      url:     typeof item.link  === 'object' ? item.link._  : (item.link  || ''),
-      pubDate: item.pubDate || item.published || '',
-      summary: item.description || item.summary || '',
-      source:  feed.name,
-    })).filter((i) => i.url && i.title);
+    return items.map((item) => {
+      // Reddit RSS wraps the real URL inside <span><a href="...">
+      let url = typeof item.link === 'object' ? item.link._ : (item.link || '');
+      if (feed.name.startsWith('Reddit') && item.link) {
+        const match = String(item.description || '').match(/href="(https?:\/\/[^"]+)"/);
+        if (match) url = match[1];
+      }
+
+      // Reddit score from title prefix e.g. "[1234 points]"
+      const redditScore = feed.name.startsWith('Reddit')
+        ? parseInt((String(item.title || '')).match(/\[(\d+)\s+point/)?.[1] || '0')
+        : 0;
+
+      return {
+        title:      typeof item.title === 'object' ? item.title._ : (item.title || ''),
+        url,
+        pubDate:    item.pubDate || item.published || '',
+        summary:    String(item.description || item.summary || '').replace(/<[^>]+>/g, '').slice(0, 300),
+        source:     feed.name,
+        redditScore,
+        hnPoints:   0,
+      };
+    }).filter((i) => i.url && i.title);
 
   } catch (e) {
     console.log(`[RSS] Failed ${feed.name}: ${e.message}`);
@@ -98,60 +127,64 @@ async function fetchRSSFeed(feed) {
   }
 }
 
+// ── SCORING ─────────────────────────────────────────────────────────────────
+const AI_KEYWORDS = [
+  'openai', 'anthropic', 'claude', 'gpt', 'gemini', 'llm', 'chatgpt',
+  'artificial intelligence', ' ai ', 'machine learning', 'deep learning',
+  'neural network', 'layoff', 'fired', 'laid off', 'funding', 'billion',
+  'regulation', 'model release', 'robot', 'automation', 'agi', 'nvidia',
+  'google ai', 'meta ai', 'microsoft ai', 'apple intelligence', 'salary',
+  'hired', 'hiring', 'package', 'researcher', 'executive', 'breakthrough',
+  'course', 'education', 'training', 'job', 'career', 'replace',
+];
+
 function scoreArticle(item, topic) {
   const text = (item.title + ' ' + item.summary).toLowerCase();
-  const topicWords = topic.toLowerCase().split(' ');
-
+  const topicWords = topic.toLowerCase().split(/\s+/);
   let score = 0;
 
-  // Topic match — heavily weighted so topic articles always win
+  // Full phrase match — biggest signal
+  if (text.includes(topic.toLowerCase())) score += 60;
+
+  // Individual topic word matches
   for (const word of topicWords) {
-    if (word.length > 2 && text.includes(word)) score += 30;
+    if (word.length > 3 && text.includes(word)) score += 25;
   }
-  // Full topic phrase match bonus
-  if (text.includes(topic.toLowerCase())) score += 50;
 
   // AI keyword relevance
   for (const kw of AI_KEYWORDS) {
-    if (text.includes(kw)) score += 2;
+    if (text.includes(kw)) score += 3;
   }
 
-  // Freshness — prefer articles from last 7 days
+  // Virality signals
+  score += Math.min(item.hnPoints / 2, 40);    // HN points (capped at 40)
+  score += Math.min(item.redditScore / 5, 30); // Reddit score (capped at 30)
+
+  // Freshness
   if (item.pubDate) {
-    const age = Date.now() - new Date(item.pubDate).getTime();
-    const days = age / (1000 * 60 * 60 * 24);
-    if (days < 1) score += 20;
-    else if (days < 3) score += 10;
+    const days = (Date.now() - new Date(item.pubDate).getTime()) / (1000 * 60 * 60 * 24);
+    if (days < 1)  score += 25;
+    else if (days < 3) score += 12;
     else if (days < 7) score += 5;
   }
 
   return score;
 }
 
+// ── ARTICLE SCRAPER ──────────────────────────────────────────────────────────
 async function scrapeArticle(url) {
   const res = await axios.get(url, { timeout: 10000, headers: HEADERS });
   const $ = cheerio.load(res.data);
-
   $('script, style, nav, header, footer, aside, .ad, .advertisement, .related, .comments, .sidebar, .menu').remove();
 
   const selectors = [
-    'article p',
-    '[data-testid="article-body"] p',
-    '.article-body p',
-    '.article-content p',
-    '.story-body p',
-    '.post-content p',
-    '.entry-content p',
-    '.content p',
-    'main p',
-    '[role="main"] p',
+    'article p', '[data-testid="article-body"] p', '.article-body p',
+    '.article-content p', '.story-body p', '.post-content p',
+    '.entry-content p', '.content p', 'main p', '[role="main"] p',
   ];
 
   for (const sel of selectors) {
-    const paragraphs = $(sel)
-      .map((_, el) => $(el).text().trim())
-      .get()
-      .filter((t) => t.length > 50);
+    const paragraphs = $(sel).map((_, el) => $(el).text().trim()).get().filter((t) => t.length > 50);
     if (paragraphs.length >= 3) return paragraphs.slice(0, 12).join('\n\n');
   }
 
@@ -159,33 +192,34 @@ async function scrapeArticle(url) {
   return all.slice(0, 10).join('\n\n');
 }
 
-function getTopicFeeds(topic) {
-  const slug = topic.toLowerCase().trim().replace(/\s+/g, '-');
-  return [
-    { name: `TechCrunch:${topic}`,    url: `https://techcrunch.com/tag/${slug}/feed/` },
-    { name: `VentureBeat:${topic}`,   url: `https://venturebeat.com/tag/${slug}/feed/` },
-  ];
-}
-
+// ── MAIN EXPORT ──────────────────────────────────────────────────────────────
 async function fetchNewsArticle(topic, exclude = []) {
-  console.log(`[RSS] Fetching from feeds — topic: "${topic}"`);
+  console.log(`[News] Fetching viral news — topic: "${topic}"`);
 
-  // Always include topic-specific tag feeds first for relevance
-  const topicFeeds = getTopicFeeds(topic);
-  const allFeeds = [...topicFeeds, ...RSS_FEEDS];
+  // Topic-specific tag feeds (TechCrunch + VentureBeat support tag RSS)
+  const slug = topic.toLowerCase().trim().replace(/\s+/g, '-');
+  const topicFeeds = [
+    { name: `TechCrunch:${topic}`,  url: `https://techcrunch.com/tag/${slug}/feed/` },
+    { name: `VentureBeat:${topic}`, url: `https://venturebeat.com/tag/${slug}/feed/` },
+  ];
 
-  // Fetch all feeds in parallel
-  const results = await Promise.all(allFeeds.map(fetchRSSFeed));
-  const allItems = results.flat();
+  // HN queries for this topic
+  const hnQueryWords = topic.split(/\s+/).slice(0, 3).join(' ');
 
-  console.log(`[RSS] Total articles found: ${allItems.length}`);
+  // Fetch everything in parallel
+  const [rssResults, topicRssResults, hnItems] = await Promise.all([
+    Promise.all(RSS_FEEDS.map(fetchRSSFeed)),
+    Promise.all(topicFeeds.map(fetchRSSFeed)),
+    searchHN(hnQueryWords),
+  ]);
 
-  // Deduplicate, filter history and exclude list
-  const history  = await loadHistory();
+  const allItems = [...topicRssResults.flat(), ...hnItems, ...rssResults.flat()];
+  console.log(`[News] Total raw articles: ${allItems.length}`);
+
+  // Filter, deduplicate, score
+  const history    = await loadHistory();
   const excludeSet = new Set(exclude);
-  const seen     = new Set();
-
-  const BLOCKED_DOMAINS = ['x.com', 'twitter.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'reddit.com'];
+  const seen       = new Set();
 
   const candidates = allItems
     .filter((item) => {
@@ -201,32 +235,24 @@ async function fetchNewsArticle(topic, exclude = []) {
     .map((item) => ({ ...item, score: scoreArticle(item, topic) }))
     .sort((a, b) => b.score - a.score);
 
-  console.log(`[RSS] ${candidates.length} unique candidates after filtering`);
-
+  console.log(`[News] ${candidates.length} unique candidates after filtering`);
   if (!candidates.length) throw new Error('No fresh articles found. Try a different topic.');
 
-  // Try top candidates until we get one with full article text
-  for (const item of candidates.slice(0, 8)) {
-    console.log(`[RSS] Trying: "${item.title}" (score: ${item.score}) @ ${item.source}`);
+  // Try top candidates — scrape for full text
+  for (const item of candidates.slice(0, 10)) {
+    console.log(`[News] Trying: "${item.title}" (score:${item.score} hn:${item.hnPoints} r:${item.redditScore}) @ ${item.source}`);
     try {
       const fullText = await scrapeArticle(item.url);
       if (fullText.length > 200) {
-        console.log(`[RSS] Got "${item.title}" — ${fullText.length} chars`);
-        return {
-          title:    item.title,
-          url:      item.url,
-          source:   item.source,
-          pubDate:  item.pubDate,
-          fullText,
-          points:   item.score,
-        };
+        console.log(`[News] Got "${item.title}" — ${fullText.length} chars`);
+        return { title: item.title, url: item.url, source: item.source, pubDate: item.pubDate, fullText, points: item.score };
       }
     } catch (e) {
-      console.log(`[RSS] Failed scrape ${item.source}: ${e.message}`);
+      console.log(`[News] Scrape failed ${item.source}: ${e.message}`);
     }
   }
 
-  // Fallback: use summary from RSS if scrape fails
+  // Fallback
   const fallback = candidates[0];
   return {
     title:    fallback.title,

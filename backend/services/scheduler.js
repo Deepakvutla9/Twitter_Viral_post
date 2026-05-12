@@ -5,16 +5,19 @@ const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
 
 const AUTO_TOPICS = [
-  'OpenAI',
-  'Anthropic',
-  'AI layoffs',
-  'Google AI',
-  'AI model release',
-  'AI funding',
-  'AI regulation',
-  'AI jobs',
-  'artificial intelligence',
-  'machine learning',
+  'AI layoffs job cuts',
+  'AI replacing human jobs',
+  'AI robots automation replacing workers',
+  'new AI model released',
+  'new AI job titles careers',
+  'AI education courses training',
+  'OpenAI news',
+  'Anthropic Claude news',
+  'Google AI Gemini',
+  'AI funding startup billion',
+  'AI research breakthrough',
+  'AI executive hired million salary',
+  'AI researcher recruited package',
 ];
 
 let activeJob = null;
