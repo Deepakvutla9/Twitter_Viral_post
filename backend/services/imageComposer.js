@@ -37,6 +37,26 @@ function fitLines(lines, startY, lineH, maxY) {
   return lines.slice(0, Math.floor((maxY - startY) / lineH));
 }
 
+// Split body text into complete sentences, then wrap and fit
+// Never cuts mid-sentence — only shows sentences that fully fit
+function fitSentences(text, maxChars, startY, lineH, maxY) {
+  const maxLines = Math.floor((maxY - startY) / lineH);
+
+  // Split into sentences
+  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+
+  const result = [];
+  for (const sentence of sentences) {
+    const wrapped = wrapLines(sentence.trim(), maxChars);
+    if (result.length + wrapped.length <= maxLines) {
+      result.push(...wrapped);
+    } else {
+      break; // stop before a sentence that won't fully fit
+    }
+  }
+  return result;
+}
+
 // ── THEMES ────────────────────────────────────────────────────────────────────
 const THEMES = [
   {
@@ -181,7 +201,7 @@ function buildSlide(slide, t, index, imgBase64 = null) {
   const BODY_LINE_H = 50;
   const BODY_MAX_CHARS = 38;
 
-  const bodyLines = fitLines(wrapLines(slide.body, BODY_MAX_CHARS), BODY_Y, BODY_LINE_H, SAFE_BOTTOM);
+  const bodyLines = fitSentences(slide.body, BODY_MAX_CHARS, BODY_Y, BODY_LINE_H, SAFE_BOTTOM);
 
   const bodySvg = bodyLines.map((l, i) =>
     `<text x="${CONTENT_LEFT}" y="${BODY_Y + i * BODY_LINE_H}"

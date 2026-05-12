@@ -61,7 +61,7 @@ const RSS_FEEDS = [
 // ── HACKERNEWS ──────────────────────────────────────────────────────────────
 async function searchHN(query) {
   try {
-    const since = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60; // last 30 days
+    const since = Math.floor(Date.now() / 1000) - 60 * 24 * 60 * 60; // last 60 days
     const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&numericFilters=created_at_i>${since},points>30&hitsPerPage=10`;
     const res = await axios.get(url, { timeout: 8000 });
     return res.data.hits
@@ -160,12 +160,14 @@ function scoreArticle(item, topic) {
   score += Math.min(item.hnPoints / 2, 40);    // HN points (capped at 40)
   score += Math.min(item.redditScore / 5, 30); // Reddit score (capped at 30)
 
-  // Freshness
+  // Freshness — strongly prefer recent articles
   if (item.pubDate) {
     const days = (Date.now() - new Date(item.pubDate).getTime()) / (1000 * 60 * 60 * 24);
-    if (days < 1)  score += 25;
-    else if (days < 3) score += 12;
-    else if (days < 7) score += 5;
+    if (days < 1)       score += 50;
+    else if (days < 3)  score += 35;
+    else if (days < 7)  score += 20;
+    else if (days < 30) score += 8;
+    else score -= 20; // penalise older articles
   }
 
   return score;
@@ -227,6 +229,8 @@ async function fetchNewsArticle(topic, exclude = []) {
   const excludeSet = new Set(exclude);
   const seen       = new Set();
 
+  const THIS_YEAR = new Date().getFullYear();
+
   const candidates = allItems
     .filter((item) => {
       if (!item.url || seen.has(item.url)) return false;
@@ -235,6 +239,11 @@ async function fetchNewsArticle(topic, exclude = []) {
         const host = new URL(item.url).hostname.replace('www.', '');
         if (BLOCKED_DOMAINS.some((d) => host.includes(d))) return false;
       } catch { return false; }
+      // Filter out old articles — must be from this year
+      if (item.pubDate) {
+        const year = new Date(item.pubDate).getFullYear();
+        if (year < THIS_YEAR) return false;
+      }
       seen.add(item.url);
       return true;
     })

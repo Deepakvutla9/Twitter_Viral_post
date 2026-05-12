@@ -38,7 +38,9 @@ RULES:
 - Specific always beats vague: "cut 1,200 jobs" not "significant layoffs"
 - Short punchy sentences. No run-ons.
 - No corporate words: no "leverage", "utilize", "in conclusion", "stakeholders"
-- Each slide body must be 4-5 sentences minimum
+- Each slide body must be 3-4 sentences MAXIMUM — keep it short so nothing gets cut off
+- Every sentence must be complete. Never end mid-thought. End every sentence with a period, exclamation mark, or question mark
+- Each sentence must be under 120 characters so it fits on the image
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
