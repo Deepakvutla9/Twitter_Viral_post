@@ -10,40 +10,43 @@ Source: ${article.source}
 Content: ${article.fullText.slice(0, 4000)}
 
 HEADLINE RULES — this is the most important part:
-- The headline MUST include the most specific, attention-grabbing detail from the article
-- Use the real NAME (person, company, product) that makes this story newsworthy
-- Use a real NUMBER or STAT if one exists in the article
-- BAD headline: "AI Company Makes Big Move" — too generic, no one cares
-- BAD headline: "Thinking Machines Launches" — missing the WHO and WHY
-- GOOD headline: "Mira Murati's AI Beats GPT-4" — name + claim + rival
-- GOOD headline: "Ex-OpenAI CTO Raises $2B" — role + action + number
-- GOOD headline: "Meta Fires 3,600 AI Engineers" — company + action + number
-- The headline should make someone stop scrolling and think "wait, who? what happened?"
-- Max 8 words. Present tense. No punctuation at end.
+- Always lead with the FAMOUS BRAND or COMPANY NAME first, then the person or action
+- Most people don't know executive names — they know company names. Use both.
+- Formula: "[Famous Company] [Action] [Shocking Detail]"
+- BAD: "Roslansky Steps Down" — nobody knows who Roslansky is
+- GOOD: "LinkedIn CEO Steps Down After 6 Years" — company first, context included
+- BAD: "AI Company Makes Big Move" — too generic
+- BAD: "Thinking Machines Launches" — missing the famous context
+- GOOD: "Ex-OpenAI CTO Mira Murati Raises $2B" — role + famous org + name + number
+- GOOD: "Meta Fires 3,600 AI Engineers" — famous company + action + number
+- GOOD: "Google Gemini Beats GPT-4 on Every Benchmark" — brand + rival + claim
+- If a person is mentioned, also include their ROLE or COMPANY so readers know why they matter
+- Max 9 words. Present tense. No punctuation at end.
 
 PATTERN — follow this exactly:
 
 SLIDE 1 — THE HOOK
-Headline: The single most shocking specific detail — a name, number, or company that makes this unmissable.
-Body: 3 meaty sentences. Open with the most jaw-dropping fact using exact numbers or names. Then explain WHY this is shocking — what makes it unusual, unexpected, or a big deal compared to the norm. End with a surprising comparison, hidden detail, or backstory that most people don't know.
+Headline: Famous company name first, then the shocking action — max 9 words.
+Body: 4 meaty sentences. Open with the single most jaw-dropping fact with exact numbers or names. Then explain WHY this is shocking compared to what people expected. Add a surprising backstory or little-known context that makes this even bigger. End with the most dramatic consequence or detail from the article.
 
 SLIDE 2 — THE FULL STORY
-Headline: Specific detail about what happened — include a name, number, or quote fragment.
-Body: 3 meaty sentences. Dig into the full story — who did what, when, and why. Include the most interesting quote, internal conflict, rivalry, or behind-the-scenes detail from the article. Give readers the context they need to fully understand the significance.
+Headline: What specifically happened — company + action + detail, max 9 words.
+Body: 4 meaty sentences. Explain exactly who did what and when, including full titles and roles. Include the most interesting quote, internal conflict, or behind-the-scenes detail. Add key numbers — revenue, headcount, timeline, salary, valuation — whatever makes this concrete. Give the "why now" — what triggered this and what it took to get here.
 
 SLIDE 3 — THE BIGGER PICTURE
-Headline: The consequence or implication — what does this mean for the industry or people?
-Body: 3 meaty sentences. Explain the ripple effect — who else gets impacted and how drastically. Include one detail that will surprise or worry the reader. End with a provocative question that makes people want to comment their opinion.
+Headline: The consequence — what this means for the industry, max 9 words.
+Body: 4 meaty sentences. Explain the ripple effect on workers, competitors, or users. Add one detail that will genuinely surprise or concern the reader. Connect it to a bigger trend in AI or tech that's already happening. End with a provocative question that makes people want to drop their opinion in the comments.
 
 RULES:
 - Write like a smart friend explaining the news, not a journalist
 - Specific always beats vague: "cut 1,200 jobs" not "significant layoffs"
 - No corporate words: no "leverage", "utilize", "stakeholders"
-- EXACTLY 3 sentences per body — each sentence 20-30 words, complete with proper punctuation
-- Do NOT write fragments like "SSH in." or "No strings." — write full, rich, informative sentences
-- Pack real names, roles, companies, numbers, quotes, and drama into every sentence
-- Find the most interesting, surprising, or controversial detail in the article and use it
-- If the article mentions a rivalry, a betrayal, a record-breaking number, or a controversial decision — that goes in the body
+- EXACTLY 4 sentences per body — each sentence 20-30 words, complete with proper punctuation
+- Do NOT write fragments — write full, rich, informative sentences packed with detail
+- Every sentence must contain at least one specific fact: a name, number, date, role, or quote
+- Find the most interesting, surprising, or controversial detail in the article and make sure it appears
+- If the article mentions a rivalry, betrayal, record number, salary, or controversial decision — that goes in the body
+- Sentences should flow naturally and build on each other like a story, not feel like a list of facts
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
@@ -51,19 +54,19 @@ Return ONLY a valid JSON object (no markdown, no explanation):
     {
       "type": "hook",
       "headline": "Specific name/number/company — max 8 words",
-      "body": "3 complete sentences with real facts and names.",
+      "body": "4 complete sentences with real facts, names, numbers.",
       "emoji": "2 relevant emojis"
     },
     {
       "type": "proof",
       "headline": "Specific detail about what happened — max 8 words",
-      "body": "3 complete sentences with key numbers, roles, quotes.",
+      "body": "4 complete sentences with key numbers, roles, quotes.",
       "emoji": "2 relevant emojis"
     },
     {
       "type": "twist",
       "headline": "The implication — max 8 words",
-      "body": "3 complete sentences ending with a question for the reader.",
+      "body": "4 complete sentences ending with a provocative question.",
       "emoji": "2 relevant emojis"
     }
   ],
