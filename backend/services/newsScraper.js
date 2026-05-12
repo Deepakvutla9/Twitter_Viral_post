@@ -23,15 +23,26 @@ async function loadHistory() {
 
 async function markPosted(url) {
   const db = getSupabase();
-  if (!db) return;
+  if (!db) {
+    console.log('[Supabase] Not configured — skipping markPosted. Check SUPABASE_URL and SUPABASE_ANON_KEY env vars.');
+    return;
+  }
   try {
-    await db.from('posted_urls').upsert({ url, posted_at: new Date().toISOString() });
+    console.log(`[Supabase] Saving URL: ${url}`);
+    const { error } = await db.from('posted_urls').upsert({ url, posted_at: new Date().toISOString() });
+    if (error) {
+      console.error('[Supabase] upsert error:', error.message);
+    } else {
+      console.log('[Supabase] URL saved successfully.');
+    }
     const { data } = await db.from('posted_urls').select('id').order('posted_at', { ascending: true });
     if (data && data.length > 100) {
       const idsToDelete = data.slice(0, data.length - 100).map((r) => r.id);
       await db.from('posted_urls').delete().in('id', idsToDelete);
     }
-  } catch {}
+  } catch (e) {
+    console.error('[Supabase] markPosted exception:', e.message);
+  }
 }
 
 const HEADERS = {
