@@ -66,23 +66,62 @@ const RSS_FEEDS = [
   { name: 'Reddit r/MachineLearning', url: 'https://www.reddit.com/r/MachineLearning/.rss?limit=25' },
 ];
 
-// ── HACKERNEWS ──────────────────────────────────────────────────────────────
+// ── HACKERNEWS ALGOLIA SEARCH ────────────────────────────────────────────────
 async function searchHN(query) {
   try {
-    const since = Math.floor(Date.now() / 1000) - 60 * 24 * 60 * 60; // last 60 days
+    const since = Math.floor(Date.now() / 1000) - 60 * 24 * 60 * 60;
     const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&numericFilters=created_at_i>${since},points>30&hitsPerPage=10`;
     const res = await axios.get(url, { timeout: 8000 });
     return res.data.hits
       .filter((h) => h.url && !h.url.includes('ycombinator.com'))
       .map((h) => ({
-        title:   h.title,
-        url:     h.url,
-        pubDate: h.created_at,
-        summary: h.story_text || '',
-        source:  'HackerNews',
+        title:    h.title,
+        url:      h.url,
+        pubDate:  h.created_at,
+        summary:  h.story_text || '',
+        source:   'HackerNews',
         hnPoints: h.points || 0,
+        redditScore: 0,
       }));
   } catch { return []; }
+}
+
+// ── HACKERNEWS TOP STORIES (front page right now) ────────────────────────────
+async function fetchHNTopStories() {
+  try {
+    // Get top 50 story IDs from HN front page
+    const idsRes = await axios.get('https://hacker-news.firebaseio.com/v0/topstories.json', { timeout: 8000 });
+    const ids = idsRes.data.slice(0, 50);
+
+    // Fetch story details in parallel (batches of 10)
+    const stories = [];
+    for (let i = 0; i < ids.length; i += 10) {
+      const batch = ids.slice(i, i + 10);
+      const details = await Promise.all(
+        batch.map((id) =>
+          axios.get(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, { timeout: 5000 })
+            .then((r) => r.data)
+            .catch(() => null)
+        )
+      );
+      stories.push(...details.filter(Boolean));
+    }
+
+    return stories
+      .filter((s) => s && s.url && s.title && s.type === 'story')
+      .map((s) => ({
+        title:    s.title,
+        url:      s.url,
+        pubDate:  new Date(s.time * 1000).toISOString(),
+        summary:  s.text || '',
+        source:   'HackerNews Top',
+        hnPoints: s.score || 0,
+        redditScore: 0,
+      }));
+  } catch (e) {
+    console.log(`[HN Top] Failed: ${e.message}`);
+    return [];
+  }
 }
 
 // ── RSS PARSER ──────────────────────────────────────────────────────────────
@@ -223,13 +262,14 @@ async function fetchNewsArticle(topic, exclude = []) {
   const hnQueryWords = topic.split(/\s+/).slice(0, 3).join(' ');
 
   // Fetch everything in parallel
-  const [rssResults, topicRssResults, hnItems] = await Promise.all([
+  const [rssResults, topicRssResults, hnItems, hnTopItems] = await Promise.all([
     Promise.all(RSS_FEEDS.map(fetchRSSFeed)),
     Promise.all(topicFeeds.map(fetchRSSFeed)),
     searchHN(hnQueryWords),
+    fetchHNTopStories(),
   ]);
 
-  const allItems = [...topicRssResults.flat(), ...hnItems, ...rssResults.flat()];
+  const allItems = [...topicRssResults.flat(), ...hnItems, ...hnTopItems, ...rssResults.flat()];
   console.log(`[News] Total raw articles: ${allItems.length}`);
 
   // Filter, deduplicate, score
