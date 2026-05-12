@@ -11,7 +11,12 @@ const instagramRoutes = require('./routes/instagram');
 const schedulerRoutes = require('./routes/scheduler');
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.options('*', cors());
 app.use(express.json());
 
 // Serve generated slide images
