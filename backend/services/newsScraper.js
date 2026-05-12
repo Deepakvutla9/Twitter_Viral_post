@@ -40,7 +40,11 @@ const HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
 };
 
-const BLOCKED_DOMAINS = ['x.com', 'twitter.com', 'facebook.com', 'instagram.com', 'tiktok.com'];
+const BLOCKED_DOMAINS = [
+  'x.com', 'twitter.com', 'facebook.com', 'instagram.com', 'tiktok.com',
+  'reddit.com', 'redd.it', 'quora.com', 'medium.com', 'substack.com',
+  'linkedin.com', 'youtube.com', 'youtu.be', 'github.com', 'docs.google.com',
+];
 
 // Keywords that indicate opinion/blog posts — not real news
 const OPINION_SIGNALS = [
@@ -59,11 +63,8 @@ const RSS_FEEDS = [
   { name: 'Wired AI',          url: 'https://www.wired.com/feed/category/artificial-intelligence/latest/rss' },
   { name: 'MIT Tech Review',   url: 'https://www.technologyreview.com/feed/' },
   { name: 'TechCrunch',        url: 'https://techcrunch.com/feed/' },
-  // Reddit — viral AI discussions
-  { name: 'Reddit r/artificial',   url: 'https://www.reddit.com/r/artificial/.rss?limit=25' },
-  { name: 'Reddit r/technology',   url: 'https://www.reddit.com/r/technology/.rss?limit=25' },
-  { name: 'Reddit r/Futurology',   url: 'https://www.reddit.com/r/Futurology/.rss?limit=25' },
-  { name: 'Reddit r/MachineLearning', url: 'https://www.reddit.com/r/MachineLearning/.rss?limit=25' },
+  { name: 'Reuters Tech',      url: 'https://feeds.reuters.com/reuters/technologyNews' },
+  { name: 'BBC Tech',          url: 'http://feeds.bbci.co.uk/news/technology/rss.xml' },
 ];
 
 // ── HACKERNEWS ALGOLIA SEARCH ────────────────────────────────────────────────
