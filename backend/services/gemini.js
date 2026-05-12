@@ -7,7 +7,7 @@ async function generateCarouselSlides(article, topic) {
 
 Article Title: ${article.title}
 Source: ${article.source}
-Content: ${article.fullText.slice(0, 2500)}
+Content: ${article.fullText.slice(0, 4000)}
 
 HEADLINE RULES — this is the most important part:
 - The headline MUST include the most specific, attention-grabbing detail from the article
@@ -24,24 +24,26 @@ HEADLINE RULES — this is the most important part:
 PATTERN — follow this exactly:
 
 SLIDE 1 — THE HOOK
-Headline: Use the most shocking specific detail — a name, number, or company that makes this unmissable.
-Body: 3 complete sentences. The most jaw-dropping fact first, then WHY it matters, then one surprising comparison or consequence.
+Headline: The single most shocking specific detail — a name, number, or company that makes this unmissable.
+Body: 3 meaty sentences. Open with the most jaw-dropping fact using exact numbers or names. Then explain WHY this is shocking — what makes it unusual, unexpected, or a big deal compared to the norm. End with a surprising comparison, hidden detail, or backstory that most people don't know.
 
 SLIDE 2 — THE FULL STORY
 Headline: Specific detail about what happened — include a name, number, or quote fragment.
-Body: 3 complete sentences. Exactly what happened, who is involved with their full title/role, and key numbers or quotes from the article.
+Body: 3 meaty sentences. Dig into the full story — who did what, when, and why. Include the most interesting quote, internal conflict, rivalry, or behind-the-scenes detail from the article. Give readers the context they need to fully understand the significance.
 
 SLIDE 3 — THE BIGGER PICTURE
 Headline: The consequence or implication — what does this mean for the industry or people?
-Body: 3 complete sentences. The wider impact, who else gets affected, and end with a direct question to the reader.
+Body: 3 meaty sentences. Explain the ripple effect — who else gets impacted and how drastically. Include one detail that will surprise or worry the reader. End with a provocative question that makes people want to comment their opinion.
 
 RULES:
 - Write like a smart friend explaining the news, not a journalist
 - Specific always beats vague: "cut 1,200 jobs" not "significant layoffs"
 - No corporate words: no "leverage", "utilize", "stakeholders"
-- EXACTLY 3 sentences per body — each sentence 15-25 words, complete with proper punctuation
-- Do NOT write fragments like "SSH in." or "No strings." — write full informative sentences
-- Pack real names, roles, companies, and numbers into every sentence
+- EXACTLY 3 sentences per body — each sentence 20-30 words, complete with proper punctuation
+- Do NOT write fragments like "SSH in." or "No strings." — write full, rich, informative sentences
+- Pack real names, roles, companies, numbers, quotes, and drama into every sentence
+- Find the most interesting, surprising, or controversial detail in the article and use it
+- If the article mentions a rivalry, a betrayal, a record-breaking number, or a controversial decision — that goes in the body
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
@@ -78,7 +80,7 @@ Return ONLY a valid JSON object (no markdown, no explanation):
       { role: 'user', content: prompt },
     ],
     temperature: 0.7,
-    max_tokens: 1024,
+    max_tokens: 1800,
     response_format: { type: 'json_object' },
   });
 
