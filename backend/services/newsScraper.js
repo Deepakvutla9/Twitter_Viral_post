@@ -171,10 +171,16 @@ async function fetchNewsArticle(topic, exclude = []) {
   const excludeSet = new Set(exclude);
   const seen     = new Set();
 
+  const BLOCKED_DOMAINS = ['x.com', 'twitter.com', 'facebook.com', 'instagram.com', 'tiktok.com', 'reddit.com'];
+
   const candidates = allItems
     .filter((item) => {
       if (!item.url || seen.has(item.url)) return false;
       if (history.has(item.url) || excludeSet.has(item.url)) return false;
+      try {
+        const host = new URL(item.url).hostname.replace('www.', '');
+        if (BLOCKED_DOMAINS.some((d) => host.includes(d))) return false;
+      } catch { return false; }
       seen.add(item.url);
       return true;
     })
