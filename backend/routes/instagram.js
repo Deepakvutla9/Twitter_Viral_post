@@ -11,7 +11,12 @@ router.post('/carousel', async (req, res) => {
   try {
     const postId = await postCarousel(imagePaths, caption);
     // Save URL to Supabase so it won't be posted again
-    if (articleUrl) await markPosted(articleUrl);
+    console.log(`[Route] articleUrl received: ${articleUrl || 'NONE'}`);
+    if (articleUrl) {
+      await markPosted(articleUrl);
+    } else {
+      console.log('[Route] No articleUrl passed — skipping markPosted');
+    }
     res.json({ success: true, postId });
   } catch (err) {
     res.status(500).json({ error: err.message });
