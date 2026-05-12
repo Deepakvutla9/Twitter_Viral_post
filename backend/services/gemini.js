@@ -3,78 +3,78 @@ const Groq = require('groq-sdk');
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 async function generateCarouselSlides(article, topic) {
-  const prompt = `You are a viral Instagram content creator who writes for people with a 3-second attention span. You follow a strict 3-slide pattern.
+  const prompt = `You are a viral Instagram carousel storyteller. You turn tech news into gripping multi-slide stories that people can't stop swiping through.
 
 Article Title: ${article.title}
 Source: ${article.source}
-Content: ${article.fullText.slice(0, 4000)}
+Content: ${article.fullText.slice(0, 5000)}
 
-HEADLINE RULES — this is the most important part:
+HEADLINE RULES — most important:
 - Always lead with the FAMOUS BRAND or COMPANY NAME first, then the person or action
-- Most people don't know executive names — they know company names. Use both.
 - Formula: "[Famous Company] [Action] [Shocking Detail]"
-- BAD: "Roslansky Steps Down" — nobody knows who Roslansky is
-- GOOD: "LinkedIn CEO Steps Down After 6 Years" — company first, context included
-- BAD: "AI Company Makes Big Move" — too generic
-- BAD: "Thinking Machines Launches" — missing the famous context
-- GOOD: "Ex-OpenAI CTO Mira Murati Raises $2B" — role + famous org + name + number
-- GOOD: "Meta Fires 3,600 AI Engineers" — famous company + action + number
-- GOOD: "Google Gemini Beats GPT-4 on Every Benchmark" — brand + rival + claim
-- If a person is mentioned, also include their ROLE or COMPANY so readers know why they matter
+- BAD: "Roslansky Steps Down" → GOOD: "LinkedIn CEO Steps Down After 6 Years"
+- BAD: "AI Company Makes Big Move" → GOOD: "Ex-OpenAI CTO Mira Murati Raises $2B"
+- GOOD: "Meta Fires 3,600 AI Engineers" / "Google Gemini Beats GPT-4 on Every Benchmark"
+- Include role + company name so readers know why the person matters
 - Max 9 words. Present tense. No punctuation at end.
 
-PATTERN — follow this exactly. Write like a Netflix narrator telling a true crime story — gripping, conversational, specific:
+SLIDE COUNT — decide based on story richness:
+- Simple story (1 main fact): 3 slides
+- Medium story (backstory + consequences): 4 slides
+- Rich story (multiple angles, rivalries, numbers, quotes): 5 slides
+- Complex story (full arc with context, drama, industry impact): 6 slides
+- NEVER exceed 6 slides. NEVER pad with fluff to reach a higher count.
+
+SLIDE STRUCTURE — write like a Netflix narrator, gripping and conversational:
 
 SLIDE 1 — THE HOOK
-Headline: Famous company name first, then the shocking action — max 9 words.
-Body: A flowing 3-4 sentence narrative paragraph. Open mid-story with the single most jaw-dropping fact — a number, a name, a decision that shocks. Pull the reader in like you're telling a friend something they won't believe. End with a cliffhanger line that makes them NEED to swipe — something like "But nobody saw what came next." or "And that was just the start."
+Headline: Famous company + shocking action, max 9 words.
+Body: 3-4 sentences. Open with the single most jaw-dropping fact. Make the reader feel like they just heard something they shouldn't know yet. End with a cliffhanger — "But nobody saw what came next." / "And that was just the beginning."
 
-SLIDE 2 — THE FULL STORY
-Headline: What specifically happened — company + action + detail, max 9 words.
-Body: A flowing 3-4 sentence narrative paragraph. Continue the story from slide 1 — who did what, when, and why. Include the most dramatic behind-the-scenes detail, quote, internal conflict, or surprising timeline. Build tension. End with a transition that raises the stakes — something like "But here's where it gets really interesting." or "Then the numbers came out — and they were worse than anyone expected."
+SLIDE 2 — THE BACKSTORY
+Headline: How did we get here — context, max 9 words.
+Body: 3-4 sentences. Zoom out — what was the situation BEFORE this happened? Include timeline, prior decisions, or the buildup that made this moment inevitable. End by snapping back to the present with rising tension.
 
-SLIDE 3 — THE TWIST
-Headline: The consequence — what this means for the industry, max 9 words.
-Body: A flowing 3-4 sentence narrative paragraph. Land the twist — the ripple effect nobody's talking about. Connect it to something bigger already happening in AI or tech. Make the reader feel like they just learned something most people don't know. End with a punchy question that makes them want to drop their opinion in the comments — something provocative and direct.
+SLIDE 3 — THE DETAILS (always include)
+Headline: The specific what/who/how much, max 9 words.
+Body: 3-4 sentences. The concrete facts — numbers, names, roles, quotes, dates. The stuff that makes this real. End with a line that raises the stakes: "But here's where it gets really interesting." / "Then the real numbers came out."
+
+SLIDE 4 — THE CONFLICT (include if story has rivalry, reaction, or drama)
+Headline: The tension — who's affected or fighting back, max 9 words.
+Body: 3-4 sentences. Who's reacting? What's the internal conflict or public response? Include any surprising quote, counter-move, or unexpected player in the story. End with another push forward.
+
+SLIDE 5 — THE BIGGER PICTURE (include if story connects to a major trend)
+Headline: What this signals for the industry, max 9 words.
+Body: 3-4 sentences. Zoom out to the industry trend. What does this mean for workers, competitors, or the future of AI? Make the reader feel like they're seeing something most people haven't connected yet.
+
+SLIDE 6 — THE TWIST / FINAL TAKE (always the last slide)
+Headline: The consequence or provocative takeaway, max 9 words.
+Body: 3-4 sentences. Land the gut-punch conclusion. The thing that will make people screenshot this. End with ONE punchy question that makes them drop their opinion in the comments — direct, provocative, impossible to ignore.
 
 RULES:
-- Write like a Netflix narrator or a smart friend texting you breaking news — NOT a journalist, NOT a press release
-- Each body is ONE flowing paragraph, not bullet points or separate lines
+- Write like a smart friend texting you breaking news — NOT a journalist, NOT a press release
+- Each body is ONE flowing paragraph — no bullet points, no line breaks inside body
 - Specific always beats vague: "cut 1,200 jobs" not "significant layoffs"
-- No corporate words: no "leverage", "utilize", "stakeholders", "paradigm"
-- Each slide body is 3-4 sentences, 80-120 words total, flowing and conversational
-- Every sentence must contain at least one specific fact: a name, number, date, role, or quote
-- The cliffhanger at the end of slide 1 and slide 2 must feel natural, not forced
-- Find the most interesting, surprising, or controversial detail in the article and lead with it
-- If the article mentions a rivalry, betrayal, record number, salary, or controversial decision — that goes in the body
-- NEVER invent facts, numbers, or company names not explicitly stated in the article
-- If the article does not mention a specific number, do not make one up
-- NEVER write vague filler sentences like "Experts predict change is coming" or "This will impact many people"
-- Each sentence must answer WHO, WHAT, or HOW MUCH — vague sentences with no specifics are forbidden
+- No corporate jargon: no "leverage", "utilize", "stakeholders", "paradigm", "ecosystem"
+- Each slide body: 3-4 sentences, 70-110 words, conversational and flowing
+- Every sentence must contain at least one specific fact: name, number, date, role, or quote
+- Cliffhangers between slides must feel natural — not "Stay tuned!" or "Swipe to find out!"
+- NEVER invent facts, numbers, quotes, or names not in the article
+- NEVER write vague filler like "experts say change is coming" or "this will impact many people"
+- If a detail is missing from the article, skip it — don't fill in with guesses
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
   "slides": [
     {
       "type": "hook",
-      "headline": "Specific name/number/company — max 8 words",
-      "body": "4 complete sentences with real facts, names, numbers.",
-      "emoji": "2 relevant emojis"
-    },
-    {
-      "type": "proof",
-      "headline": "Specific detail about what happened — max 8 words",
-      "body": "4 complete sentences with key numbers, roles, quotes.",
-      "emoji": "2 relevant emojis"
-    },
-    {
-      "type": "twist",
-      "headline": "The implication — max 8 words",
-      "body": "4 complete sentences ending with a provocative question.",
+      "headline": "Company + action — max 9 words",
+      "body": "Flowing narrative paragraph, 3-4 sentences, ends with cliffhanger.",
       "emoji": "2 relevant emojis"
     }
+    ... (3 to 6 slides total depending on story richness)
   ],
-  "caption": "Start with the hook from slide 1. Add 1-2 sentences of context. End with the question from slide 3. Then on a new line add EXACTLY 5 hashtags — only hashtags directly relevant to this specific article. Do not add any brand or product name unless explicitly mentioned in the article."
+  "caption": "Hook sentence from slide 1. 1-2 sentences of context. End with the question from the last slide. New line, then EXACTLY 5 hashtags directly relevant to this article only."
 }`;
 
   const completion = await groq.chat.completions.create({
@@ -87,7 +87,7 @@ Return ONLY a valid JSON object (no markdown, no explanation):
       { role: 'user', content: prompt },
     ],
     temperature: 0.7,
-    max_tokens: 1800,
+    max_tokens: 2800,
     response_format: { type: 'json_object' },
   });
 
