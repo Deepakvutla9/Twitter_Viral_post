@@ -102,7 +102,7 @@ export default function App() {
     setError(null);
     setLoad('post', true);
     try {
-      const result = await postCarousel(imagePaths, caption);
+      const result = await postCarousel(imagePaths, caption, article?.url);
       setPosted(result.postId);
     } catch (e) {
       setError(e.response?.data?.error || e.message);

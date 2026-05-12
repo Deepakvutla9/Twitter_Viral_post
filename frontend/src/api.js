@@ -8,8 +8,8 @@ export const fetchNews = (topic, exclude = []) =>
 export const generateSlides = (article, topic) =>
   api.post('/generate', { article, topic }).then((r) => r.data);
 
-export const postCarousel = (imagePaths, caption) =>
-  api.post('/instagram/carousel', { imagePaths, caption }).then((r) => r.data);
+export const postCarousel = (imagePaths, caption, articleUrl) =>
+  api.post('/instagram/carousel', { imagePaths, caption, articleUrl }).then((r) => r.data);
 
 export const runPipeline = () =>
   api.post('/scheduler/run').then((r) => r.data);
