@@ -9,7 +9,7 @@ router.post('/', async (req, res) => {
 
   try {
     const { slides, caption } = await generateCarouselSlides(article, topic);
-    const images = await composeSlideImages(slides);
+    const images = await composeSlideImages(slides, article.ogImage || null);
     const imageUrls = images.map((img) => `/temp/${img.filename}`);
     res.json({ slides, caption, imageUrls, imagePaths: images.map((i) => i.filepath) });
   } catch (err) {

@@ -1,4 +1,5 @@
 const sharp = require('sharp');
+const axios = require('axios');
 const path = require('path');
 const fs = require('fs');
 
@@ -147,7 +148,7 @@ function cornerDeco(t) {
 }
 
 // ── SLIDE BUILDER ─────────────────────────────────────────────────────────────
-function buildSlide(slide, t, index) {
+function buildSlide(slide, t, index, imgBase64 = null) {
   const SAFE_BOTTOM = H - 90;
   const CONTENT_LEFT = PAD + 20;
   const CONTENT_WIDTH = W - CONTENT_LEFT - PAD;
@@ -175,7 +176,7 @@ function buildSlide(slide, t, index) {
   `;
 
   // Body text
-  const BODY_Y = accentLineY + 36;
+  const BODY_Y = accentLineY + 55;
   const BODY_FONT = 36;
   const BODY_LINE_H = 50;
   const BODY_MAX_CHARS = 38;
@@ -191,6 +192,11 @@ function buildSlide(slide, t, index) {
 
   const numLabel = String(index + 1).padStart(2, '0');
 
+  const imgLayer = imgBase64
+    ? `<image href="data:image/jpeg;base64,${imgBase64}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="xMidYMid slice"/>
+       <rect width="${W}" height="${H}" fill="${t.bg}" opacity="0.72"/>`
+    : `${bgRect(t)}${gridLines(t)}`;
+
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <filter id="glow">
@@ -199,8 +205,7 @@ function buildSlide(slide, t, index) {
     </filter>
   </defs>
 
-  ${bgRect(t)}
-  ${gridLines(t)}
+  ${imgLayer}
   ${slideNumber(numLabel, t)}
   ${cornerDeco(t)}
   ${accentBar(t)}
@@ -215,14 +220,39 @@ function buildSlide(slide, t, index) {
 </svg>`;
 }
 
+// ── IMAGE DOWNLOAD ────────────────────────────────────────────────────────────
+async function fetchImageBase64(url) {
+  try {
+    const res = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 8000,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    });
+    // Resize to 1080x1080 and darken for background use
+    const buf = await sharp(Buffer.from(res.data))
+      .resize(1080, 1080, { fit: 'cover', position: 'centre' })
+      .modulate({ brightness: 0.35, saturation: 0.7 })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    return buf.toString('base64');
+  } catch (e) {
+    console.log(`[ImageComposer] Could not fetch article image: ${e.message}`);
+    return null;
+  }
+}
+
 // ── EXPORT ────────────────────────────────────────────────────────────────────
-async function composeSlideImages(slides) {
+async function composeSlideImages(slides, ogImage = null) {
   const timestamp = Date.now();
   const results = [];
 
+  // Try to fetch article image for slide 1
+  const imgBase64 = ogImage ? await fetchImageBase64(ogImage) : null;
+
   for (let i = 0; i < slides.length; i++) {
     const t = THEMES[i % THEMES.length];
-    const svg = buildSlide(slides[i], t, i);
+    const useImage = i === 0 && imgBase64; // only slide 1 gets article image
+    const svg = buildSlide(slides[i], t, i, useImage ? imgBase64 : null);
     const filename = `slide_${timestamp}_${i}.jpg`;
     const filepath = path.join(TEMP_DIR, filename);
     await sharp(Buffer.from(svg)).jpeg({ quality: 95 }).toFile(filepath);

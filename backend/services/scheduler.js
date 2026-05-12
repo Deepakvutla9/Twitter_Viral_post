@@ -47,7 +47,7 @@ async function runPipeline() {
   const { slides, caption } = await generateCarouselSlides(article, topic);
   console.log(`[Pipeline] Generated ${slides.length} slides`);
 
-  const images = await composeSlideImages(slides);
+  const images = await composeSlideImages(slides, article.ogImage || null);
   const imagePaths = images.map((i) => i.filepath);
 
   const postId = await postCarousel(imagePaths, caption);

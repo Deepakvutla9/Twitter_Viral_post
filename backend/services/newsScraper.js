@@ -175,6 +175,12 @@ function scoreArticle(item, topic) {
 async function scrapeArticle(url) {
   const res = await axios.get(url, { timeout: 10000, headers: HEADERS });
   const $ = cheerio.load(res.data);
+
+  // Grab og:image before removing elements
+  const ogImage = $('meta[property="og:image"]').attr('content')
+    || $('meta[name="twitter:image"]').attr('content')
+    || null;
+
   $('script, style, nav, header, footer, aside, .ad, .advertisement, .related, .comments, .sidebar, .menu').remove();
 
   const selectors = [
@@ -185,11 +191,11 @@ async function scrapeArticle(url) {
 
   for (const sel of selectors) {
     const paragraphs = $(sel).map((_, el) => $(el).text().trim()).get().filter((t) => t.length > 50);
-    if (paragraphs.length >= 3) return paragraphs.slice(0, 12).join('\n\n');
+    if (paragraphs.length >= 3) return { text: paragraphs.slice(0, 12).join('\n\n'), ogImage };
   }
 
   const all = $('p').map((_, el) => $(el).text().trim()).get().filter((t) => t.length > 60);
-  return all.slice(0, 10).join('\n\n');
+  return { text: all.slice(0, 10).join('\n\n'), ogImage };
 }
 
 // ── MAIN EXPORT ──────────────────────────────────────────────────────────────
@@ -242,10 +248,10 @@ async function fetchNewsArticle(topic, exclude = []) {
   for (const item of candidates.slice(0, 10)) {
     console.log(`[News] Trying: "${item.title}" (score:${item.score} hn:${item.hnPoints} r:${item.redditScore}) @ ${item.source}`);
     try {
-      const fullText = await scrapeArticle(item.url);
+      const { text: fullText, ogImage } = await scrapeArticle(item.url);
       if (fullText.length > 200) {
-        console.log(`[News] Got "${item.title}" — ${fullText.length} chars`);
-        return { title: item.title, url: item.url, source: item.source, pubDate: item.pubDate, fullText, points: item.score };
+        console.log(`[News] Got "${item.title}" — ${fullText.length} chars, image: ${ogImage ? 'yes' : 'no'}`);
+        return { title: item.title, url: item.url, source: item.source, pubDate: item.pubDate, fullText, ogImage, points: item.score };
       }
     } catch (e) {
       console.log(`[News] Scrape failed ${item.source}: ${e.message}`);
@@ -260,6 +266,7 @@ async function fetchNewsArticle(topic, exclude = []) {
     source:   fallback.source,
     pubDate:  fallback.pubDate,
     fullText: fallback.title + (fallback.summary ? '\n\n' + fallback.summary : ''),
+    ogImage:  null,
     points:   fallback.score,
   };
 }
