@@ -23,35 +23,34 @@ HEADLINE RULES — this is the most important part:
 - If a person is mentioned, also include their ROLE or COMPANY so readers know why they matter
 - Max 9 words. Present tense. No punctuation at end.
 
-PATTERN — follow this exactly:
+PATTERN — follow this exactly. Write like a Netflix narrator telling a true crime story — gripping, conversational, specific:
 
 SLIDE 1 — THE HOOK
 Headline: Famous company name first, then the shocking action — max 9 words.
-Body: 4 meaty sentences. Open with the single most jaw-dropping fact with exact numbers or names. Then explain WHY this is shocking compared to what people expected. Add a surprising backstory or little-known context that makes this even bigger. End with the most dramatic consequence or detail from the article.
+Body: A flowing 3-4 sentence narrative paragraph. Open mid-story with the single most jaw-dropping fact — a number, a name, a decision that shocks. Pull the reader in like you're telling a friend something they won't believe. End with a cliffhanger line that makes them NEED to swipe — something like "But nobody saw what came next." or "And that was just the start."
 
 SLIDE 2 — THE FULL STORY
 Headline: What specifically happened — company + action + detail, max 9 words.
-Body: 4 meaty sentences. Explain exactly who did what and when, including full titles and roles. Include the most interesting quote, internal conflict, or behind-the-scenes detail. Add key numbers — revenue, headcount, timeline, salary, valuation — whatever makes this concrete. Give the "why now" — what triggered this and what it took to get here.
+Body: A flowing 3-4 sentence narrative paragraph. Continue the story from slide 1 — who did what, when, and why. Include the most dramatic behind-the-scenes detail, quote, internal conflict, or surprising timeline. Build tension. End with a transition that raises the stakes — something like "But here's where it gets really interesting." or "Then the numbers came out — and they were worse than anyone expected."
 
-SLIDE 3 — THE BIGGER PICTURE
+SLIDE 3 — THE TWIST
 Headline: The consequence — what this means for the industry, max 9 words.
-Body: 4 meaty sentences. Explain the ripple effect on workers, competitors, or users. Add one detail that will genuinely surprise or concern the reader. Connect it to a bigger trend in AI or tech that's already happening. End with a provocative question that makes people want to drop their opinion in the comments.
+Body: A flowing 3-4 sentence narrative paragraph. Land the twist — the ripple effect nobody's talking about. Connect it to something bigger already happening in AI or tech. Make the reader feel like they just learned something most people don't know. End with a punchy question that makes them want to drop their opinion in the comments — something provocative and direct.
 
 RULES:
-- Write like a smart friend explaining the news, not a journalist
+- Write like a Netflix narrator or a smart friend texting you breaking news — NOT a journalist, NOT a press release
+- Each body is ONE flowing paragraph, not bullet points or separate lines
 - Specific always beats vague: "cut 1,200 jobs" not "significant layoffs"
-- No corporate words: no "leverage", "utilize", "stakeholders"
-- EXACTLY 4 sentences per body — each sentence 20-30 words, complete with proper punctuation
-- Do NOT write fragments — write full, rich, informative sentences packed with detail
+- No corporate words: no "leverage", "utilize", "stakeholders", "paradigm"
+- Each slide body is 3-4 sentences, 80-120 words total, flowing and conversational
 - Every sentence must contain at least one specific fact: a name, number, date, role, or quote
-- Find the most interesting, surprising, or controversial detail in the article and make sure it appears
+- The cliffhanger at the end of slide 1 and slide 2 must feel natural, not forced
+- Find the most interesting, surprising, or controversial detail in the article and lead with it
 - If the article mentions a rivalry, betrayal, record number, salary, or controversial decision — that goes in the body
-- Sentences should flow naturally and build on each other like a story, not feel like a list of facts
 - NEVER invent facts, numbers, or company names not explicitly stated in the article
 - If the article does not mention a specific number, do not make one up
-- NEVER write vague filler sentences like "Experts predict change is coming" or "This will impact many people" — if you don't have a specific fact, use a different fact from the article
+- NEVER write vague filler sentences like "Experts predict change is coming" or "This will impact many people"
 - Each sentence must answer WHO, WHAT, or HOW MUCH — vague sentences with no specifics are forbidden
-- If the article is a community discussion (Reddit, forum), focus on the most specific claims, quotes, or data points mentioned by commenters
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
