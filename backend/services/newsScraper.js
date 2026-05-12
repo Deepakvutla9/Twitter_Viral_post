@@ -42,6 +42,14 @@ const HEADERS = {
 
 const BLOCKED_DOMAINS = ['x.com', 'twitter.com', 'facebook.com', 'instagram.com', 'tiktok.com'];
 
+// Keywords that indicate opinion/blog posts — not real news
+const OPINION_SIGNALS = [
+  'my thoughts', 'i think', 'i believe', 'opinion:', 'perspective:',
+  'were you recently laid off', 'helpful thoughts', 'survival guide',
+  'dear diary', 'personal story', 'my experience', 'how i ', 'why i ',
+  'letter to', 'an open letter', 'reflections on', 'musings',
+];
+
 // ── RSS FEEDS ──────────────────────────────────────────────────────────────
 const RSS_FEEDS = [
   { name: 'TechCrunch AI',     url: 'https://techcrunch.com/category/artificial-intelligence/feed/' },
@@ -260,6 +268,13 @@ async function fetchNewsArticle(topic, exclude = []) {
     try {
       const { text: fullText, ogImage } = await scrapeArticle(item.url);
       if (fullText.length > 200) {
+        // Reject opinion pieces / personal blogs
+        const lowerText = fullText.slice(0, 500).toLowerCase();
+        const isOpinion = OPINION_SIGNALS.some((s) => lowerText.includes(s));
+        if (isOpinion) {
+          console.log(`[News] Skipping opinion/blog piece: "${item.title}"`);
+          continue;
+        }
         console.log(`[News] Got "${item.title}" — ${fullText.length} chars, image: ${ogImage ? 'yes' : 'no'}`);
         return { title: item.title, url: item.url, source: item.source, pubDate: item.pubDate, fullText, ogImage, points: item.score };
       }

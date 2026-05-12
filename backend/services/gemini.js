@@ -47,6 +47,8 @@ RULES:
 - Find the most interesting, surprising, or controversial detail in the article and make sure it appears
 - If the article mentions a rivalry, betrayal, record number, salary, or controversial decision — that goes in the body
 - Sentences should flow naturally and build on each other like a story, not feel like a list of facts
+- NEVER invent facts, numbers, or company names not explicitly stated in the article
+- If the article does not mention a specific number, do not make one up
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
