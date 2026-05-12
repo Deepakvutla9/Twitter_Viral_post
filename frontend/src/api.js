@@ -22,3 +22,6 @@ export const stopScheduler = () =>
 
 export const getSchedulerStatus = () =>
   api.get('/scheduler/status').then((r) => r.data);
+
+export const getTrending = () =>
+  api.get('/trending').then((r) => r.data.stories);

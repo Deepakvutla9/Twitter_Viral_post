@@ -7,6 +7,7 @@ import {
   startScheduler,
   stopScheduler,
   getSchedulerStatus,
+  getTrending,
 } from './api';
 import './App.css';
 
@@ -24,6 +25,8 @@ export default function App() {
   const [topic, setTopic]           = useState('');
   const [article, setArticle]       = useState(null);
   const [seenUrls, setSeenUrls]     = useState([]);
+  const [trending, setTrending]     = useState([]);
+  const [loadingTrend, setLoadingTrend] = useState(false);
   const [slides, setSlides]         = useState([]);
   const [caption, setCaption]       = useState('');
   const [imageUrls, setImageUrls]   = useState([]);
@@ -37,9 +40,16 @@ export default function App() {
 
   useEffect(() => {
     fetchStatus();
+    loadTrending();
     const interval = setInterval(fetchStatus, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  async function loadTrending() {
+    setLoadingTrend(true);
+    try { setTrending(await getTrending()); } catch {}
+    finally { setLoadingTrend(false); }
+  }
 
   async function fetchStatus() {
     try { setSchedulerStatus(await getSchedulerStatus()); } catch {}
@@ -161,6 +171,49 @@ export default function App() {
 
         {/* ── ERROR ── */}
         {error && <div className="error-banner">⚠ {error}</div>}
+
+        {/* ── TRENDING PANEL ── */}
+        {activeTab === 'manual' && (
+          <div className="panel">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: '0.7rem', color: 'var(--cyan)', letterSpacing: '2px', textTransform: 'uppercase' }}>
+                ⚡ HN TRENDING NOW
+              </span>
+              <button className="btn btn-cyan" onClick={loadTrending} disabled={loadingTrend}
+                style={{ padding: '0.3rem 0.8rem', fontSize: '0.7rem' }}>
+                {loadingTrend ? '...' : 'REFRESH'}
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '220px', overflowY: 'auto' }}>
+              {trending.slice(0, 15).map((s, i) => (
+                <div key={i}
+                  onClick={() => { setTopic(s.title); setSeenUrls([]); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.8rem',
+                    padding: '0.5rem 0.7rem', background: 'var(--bg3)',
+                    border: '1px solid var(--border)', borderRadius: '6px',
+                    cursor: 'pointer', transition: 'border-color 0.2s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--cyan)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                >
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: '0.7rem', color: 'var(--yellow)', minWidth: '45px' }}>
+                    ▲ {s.points}
+                  </span>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text)', flex: 1, lineHeight: 1.3 }}>{s.title}</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: '0.65rem', color: 'var(--text-dim)', whiteSpace: 'nowrap' }}>
+                    {s.source}
+                  </span>
+                </div>
+              ))}
+              {!loadingTrend && trending.length === 0 && (
+                <div style={{ fontFamily: 'var(--mono)', fontSize: '0.75rem', color: 'var(--text-mute)', padding: '0.5rem' }}>
+                  Click REFRESH to load trending stories
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── MANUAL MODE ── */}
         {activeTab === 'manual' && (

@@ -9,6 +9,7 @@ const scrapeRoutes = require('./routes/scrape');
 const generateRoutes = require('./routes/generate');
 const instagramRoutes = require('./routes/instagram');
 const schedulerRoutes = require('./routes/scheduler');
+const trendingRoutes = require('./routes/trending');
 
 const app = express();
 app.use(cors({
@@ -25,6 +26,7 @@ app.use('/api/scrape', scrapeRoutes);
 app.use('/api/generate', generateRoutes);
 app.use('/api/instagram', instagramRoutes);
 app.use('/api/scheduler', schedulerRoutes);
+app.use('/api/trending', trendingRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

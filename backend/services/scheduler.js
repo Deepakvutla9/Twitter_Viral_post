@@ -1,50 +1,30 @@
 const cron = require('node-cron');
-const { fetchNewsArticle, markPosted } = require('./newsScraper');
+const { fetchNewsArticle, fetchTrendingArticle, markPosted } = require('./newsScraper');
 const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
 
-const AUTO_TOPICS = [
-  'AI layoffs job cuts',
-  'AI replacing human jobs',
-  'AI robots automation replacing workers',
-  'new AI model released',
-  'new AI job titles careers',
-  'AI education courses training',
-  'OpenAI news',
-  'Anthropic Claude news',
-  'Google AI Gemini',
-  'AI funding startup billion',
-  'AI research breakthrough',
-  'AI executive hired million salary',
-  'AI researcher recruited package',
-];
-
 let activeJob = null;
-let topicIndex = 0;
 
 let jobStatus = {
   running: false,
   schedule: null,
   lastRun: null,
   lastResult: null,
-  nextTopic: AUTO_TOPICS[0],
+  nextTopic: 'HN Trending',
   totalPosted: 0,
 };
 
 async function runPipeline() {
-  const topic = AUTO_TOPICS[topicIndex % AUTO_TOPICS.length];
-  topicIndex++;
+  jobStatus.lastRun = new Date().toISOString();
 
-  jobStatus.nextTopic = AUTO_TOPICS[topicIndex % AUTO_TOPICS.length];
-  jobStatus.lastRun   = new Date().toISOString();
+  console.log('[Pipeline] Fetching top trending story from HN front page...');
 
-  console.log(`[Pipeline] Running — topic: "${topic}"`);
+  // Always use HN trending — most viral story right now
+  const article = await fetchTrendingArticle();
+  console.log(`[Pipeline] Trending: "${article.title}" (${article.points} pts)`);
 
-  const article = await fetchNewsArticle(topic);
-  console.log(`[Pipeline] Fetched: "${article.title}" (${article.points} pts)`);
-
-  const { slides, caption } = await generateCarouselSlides(article, topic);
+  const { slides, caption } = await generateCarouselSlides(article, article.title);
   console.log(`[Pipeline] Generated ${slides.length} slides`);
 
   const images = await composeSlideImages(slides, article.ogImage || null);
@@ -57,13 +37,13 @@ async function runPipeline() {
   const result = {
     success: true,
     postId,
-    topic,
+    topic: article.title,
     article: article.title,
     postedAt: new Date().toISOString(),
   };
   jobStatus.lastResult = result;
 
-  console.log(`[Pipeline] Posted carousel: ${postId} (total: ${jobStatus.totalPosted})`);
+  console.log(`[Pipeline] Posted: ${postId} (total: ${jobStatus.totalPosted})`);
   return result;
 }
 

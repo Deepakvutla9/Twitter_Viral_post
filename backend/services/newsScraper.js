@@ -336,4 +336,60 @@ async function fetchNewsArticle(topic, exclude = []) {
   };
 }
 
-module.exports = { fetchNewsArticle, markPosted };
+// ── TRENDING: pick best AI/tech story from HN front page ─────────────────────
+const TECH_AI_KEYWORDS = [
+  'ai', 'openai', 'anthropic', 'google', 'meta', 'microsoft', 'nvidia',
+  'llm', 'gpt', 'claude', 'gemini', 'model', 'robot', 'automation',
+  'layoff', 'fired', 'hired', 'funding', 'startup', 'raises', 'billion',
+  'apple', 'amazon', 'tesla', 'tech', 'software', 'developer', 'engineer',
+  'machine learning', 'deep learning', 'data', 'chip', 'gpu', 'compute',
+];
+
+async function fetchTrendingArticle() {
+  console.log('[Trending] Fetching HN front page top stories...');
+  const history = await loadHistory();
+
+  const topItems = await fetchHNTopStories();
+
+  // Score each item by AI/tech relevance + HN points
+  const scored = topItems
+    .filter((item) => !history.has(item.url))
+    .map((item) => {
+      const text = item.title.toLowerCase();
+      let score = item.hnPoints;
+      for (const kw of TECH_AI_KEYWORDS) {
+        if (text.includes(kw)) score += 20;
+      }
+      return { ...item, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  console.log(`[Trending] Top candidate: "${scored[0]?.title}" (score: ${scored[0]?.score})`);
+
+  if (!scored.length) throw new Error('No trending tech stories found on HN');
+
+  // Try to scrape top candidates
+  for (const item of scored.slice(0, 8)) {
+    try {
+      const { text: fullText, ogImage } = await scrapeArticle(item.url);
+      if (fullText.length > 200) {
+        const lowerText = fullText.slice(0, 500).toLowerCase();
+        if (OPINION_SIGNALS.some((s) => lowerText.includes(s))) continue;
+        console.log(`[Trending] Using: "${item.title}" (${item.hnPoints} pts)`);
+        return {
+          title:    item.title,
+          url:      item.url,
+          source:   'HackerNews',
+          pubDate:  item.pubDate,
+          fullText,
+          ogImage,
+          points:   item.hnPoints,
+        };
+      }
+    } catch {}
+  }
+
+  throw new Error('Could not scrape any trending HN story');
+}
+
+module.exports = { fetchNewsArticle, fetchTrendingArticle, markPosted };
