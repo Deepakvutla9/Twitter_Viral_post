@@ -62,7 +62,7 @@ Return ONLY a valid JSON object (no markdown, no explanation):
       "emoji": "2 relevant emojis"
     }
   ],
-  "caption": "Start with the hook from slide 1. Add 1-2 sentences of context. End with the question from slide 3. Then 10 hashtags on a new line."
+  "caption": "Start with the hook from slide 1. Add 1-2 sentences of context. End with the question from slide 3. Then on a new line add EXACTLY 5 hashtags picked from this list based on what fits the article best — pick the most viral and relevant ones only:\n\n#ArtificialIntelligence #AINews #AIRevolution #FutureOfWork #AIJobs #TechNews #MachineLearning #DeepLearning #OpenAI #ChatGPT #GPT4 #AIResearch #TechLayoffs #Layoffs #JobCuts #Automation #AIRobots #RobotsReplaceHumans #FutureOfAI #AGI #AIStartup #AIFunding #TechIndustry #BigTech #NvidiaAI #GoogleAI #AnthropicAI #ClaudeAI #GeminiAI #AIBreakthrough #AIModel #LLM #GenerativeAI #AIEthics #AIRegulation #AIEducation #LearnAI #AICareer #AIEngineer #PromptEngineering #DataScience #MLEngineer #AIResearcher #TechHiring #AIExecutive #TechSalary #SiliconValley #StartupNews #VentureCapital #AIInvestment #Robotics\n\nReturn EXACTLY 5 hashtags, no more, no less."
 }`;
 
   const completion = await groq.chat.completions.create({
