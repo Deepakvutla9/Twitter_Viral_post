@@ -230,6 +230,7 @@ async function fetchNewsArticle(topic, exclude = []) {
   const seen       = new Set();
 
   const THIS_YEAR = new Date().getFullYear();
+  const SIX_MONTHS_AGO = Date.now() - 180 * 24 * 60 * 60 * 1000;
 
   const candidates = allItems
     .filter((item) => {
@@ -239,11 +240,11 @@ async function fetchNewsArticle(topic, exclude = []) {
         const host = new URL(item.url).hostname.replace('www.', '');
         if (BLOCKED_DOMAINS.some((d) => host.includes(d))) return false;
       } catch { return false; }
-      // Filter out old articles — must be from this year
-      if (item.pubDate) {
-        const year = new Date(item.pubDate).getFullYear();
-        if (year < THIS_YEAR) return false;
-      }
+      // Strict date filter — must have a date AND be from this year
+      if (!item.pubDate) return false;
+      const parsed = new Date(item.pubDate);
+      if (isNaN(parsed.getTime())) return false;
+      if (parsed.getFullYear() < THIS_YEAR) return false;
       seen.add(item.url);
       return true;
     })
