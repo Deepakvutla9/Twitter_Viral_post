@@ -49,6 +49,9 @@ RULES:
 - Sentences should flow naturally and build on each other like a story, not feel like a list of facts
 - NEVER invent facts, numbers, or company names not explicitly stated in the article
 - If the article does not mention a specific number, do not make one up
+- NEVER write vague filler sentences like "Experts predict change is coming" or "This will impact many people" — if you don't have a specific fact, use a different fact from the article
+- Each sentence must answer WHO, WHAT, or HOW MUCH — vague sentences with no specifics are forbidden
+- If the article is a community discussion (Reddit, forum), focus on the most specific claims, quotes, or data points mentioned by commenters
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
