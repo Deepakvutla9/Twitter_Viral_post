@@ -1,4 +1,5 @@
 const axios = require('axios');
+const xml2js = require('xml2js');
 const cheerio = require('cheerio');
 const { createClient } = require('@supabase/supabase-js');
 
@@ -25,7 +26,6 @@ async function markPosted(url) {
   if (!db) return;
   try {
     await db.from('posted_urls').upsert({ url, posted_at: new Date().toISOString() });
-    // Keep only last 100
     const { data } = await db.from('posted_urls').select('id').order('posted_at', { ascending: true });
     if (data && data.length > 100) {
       const idsToDelete = data.slice(0, data.length - 100).map((r) => r.id);
@@ -40,26 +40,90 @@ const HEADERS = {
   'Accept-Language': 'en-US,en;q=0.9',
 };
 
-const AI_QUERIES = [
-  'OpenAI',
-  'Anthropic',
-  'AI jobs',
-  'AI layoffs',
-  'Google AI',
-  'Claude',
-  'GPT',
-  'AI model',
-  'artificial intelligence',
-  'AI regulation',
-  'AI funding',
-  'machine learning',
+// Top tech/AI RSS feeds
+const RSS_FEEDS = [
+  { name: 'TechCrunch AI',     url: 'https://techcrunch.com/category/artificial-intelligence/feed/' },
+  { name: 'VentureBeat AI',    url: 'https://venturebeat.com/category/ai/feed/' },
+  { name: 'Ars Technica Tech', url: 'https://feeds.arstechnica.com/arstechnica/technology-lab' },
+  { name: 'The Verge AI',      url: 'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml' },
+  { name: 'Wired',             url: 'https://www.wired.com/feed/category/artificial-intelligence/latest/rss' },
+  { name: 'MIT Tech Review',   url: 'https://www.technologyreview.com/feed/' },
+  { name: 'TechCrunch',        url: 'https://techcrunch.com/feed/' },
+  { name: 'The Verge',         url: 'https://www.theverge.com/rss/index.xml' },
 ];
 
-async function searchHN(query) {
-  const since = Math.floor(Date.now() / 1000) - 180 * 24 * 60 * 60;
-  const url = `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&numericFilters=created_at_i>${since},points>20&hitsPerPage=8`;
-  const res = await axios.get(url, { timeout: 8000 });
-  return res.data.hits.filter((h) => h.url && !h.url.includes('ycombinator.com'));
+// Keywords to score relevance
+const AI_KEYWORDS = [
+  'openai', 'anthropic', 'claude', 'gpt', 'gemini', 'llm', 'chatgpt',
+  'artificial intelligence', ' ai ', 'machine learning', 'deep learning',
+  'neural network', 'layoff', 'fired', 'funding', 'billion', 'regulation',
+  'model', 'robot', 'automation', 'agi', 'nvidia', 'google ai', 'meta ai',
+  'microsoft ai', 'apple ai', 'amazon ai', 'startup', 'tech',
+];
+
+async function fetchRSSFeed(feed) {
+  try {
+    const res = await axios.get(feed.url, { timeout: 8000, headers: HEADERS });
+    const parsed = await xml2js.parseStringPromise(res.data, { explicitArray: false });
+
+    let items = [];
+
+    // RSS 2.0
+    if (parsed.rss?.channel?.item) {
+      const raw = parsed.rss.channel.item;
+      items = Array.isArray(raw) ? raw : [raw];
+    }
+    // Atom
+    else if (parsed.feed?.entry) {
+      const raw = parsed.feed.entry;
+      items = (Array.isArray(raw) ? raw : [raw]).map((e) => ({
+        title: typeof e.title === 'object' ? e.title._ : e.title,
+        link: typeof e.link === 'object' ? (e.link.$ ?.href || e.link) : e.link,
+        pubDate: e.published || e.updated,
+        description: typeof e.summary === 'object' ? e.summary._ : (e.summary || ''),
+      }));
+    }
+
+    return items.map((item) => ({
+      title:   typeof item.title === 'object' ? item.title._ : (item.title || ''),
+      url:     typeof item.link  === 'object' ? item.link._  : (item.link  || ''),
+      pubDate: item.pubDate || item.published || '',
+      summary: item.description || item.summary || '',
+      source:  feed.name,
+    })).filter((i) => i.url && i.title);
+
+  } catch (e) {
+    console.log(`[RSS] Failed ${feed.name}: ${e.message}`);
+    return [];
+  }
+}
+
+function scoreArticle(item, topic) {
+  const text = (item.title + ' ' + item.summary).toLowerCase();
+  const topicWords = topic.toLowerCase().split(' ');
+
+  let score = 0;
+
+  // Topic match
+  for (const word of topicWords) {
+    if (word.length > 2 && text.includes(word)) score += 10;
+  }
+
+  // AI keyword relevance
+  for (const kw of AI_KEYWORDS) {
+    if (text.includes(kw)) score += 2;
+  }
+
+  // Freshness — prefer articles from last 7 days
+  if (item.pubDate) {
+    const age = Date.now() - new Date(item.pubDate).getTime();
+    const days = age / (1000 * 60 * 60 * 24);
+    if (days < 1) score += 20;
+    else if (days < 3) score += 10;
+    else if (days < 7) score += 5;
+  }
+
+  return score;
 }
 
 async function scrapeArticle(url) {
@@ -94,56 +158,63 @@ async function scrapeArticle(url) {
 }
 
 async function fetchNewsArticle(topic, exclude = []) {
-  console.log(`[Scraper] Searching for viral AI news (topic hint: "${topic}")`);
+  console.log(`[RSS] Fetching from ${RSS_FEEDS.length} feeds — topic: "${topic}"`);
 
-  const queries = [topic, ...AI_QUERIES].slice(0, 8);
-  const results = await Promise.allSettled(queries.map(searchHN));
+  // Fetch all feeds in parallel
+  const results = await Promise.all(RSS_FEEDS.map(fetchRSSFeed));
+  const allItems = results.flat();
 
-  const seen = new Set();
-  const history = await loadHistory();
+  console.log(`[RSS] Total articles found: ${allItems.length}`);
+
+  // Deduplicate, filter history and exclude list
+  const history  = await loadHistory();
   const excludeSet = new Set(exclude);
+  const seen     = new Set();
 
-  const allHits = results
-    .flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
-    .filter((h) => {
-      if (seen.has(h.url) || history.has(h.url) || excludeSet.has(h.url)) return false;
-      seen.add(h.url);
+  const candidates = allItems
+    .filter((item) => {
+      if (!item.url || seen.has(item.url)) return false;
+      if (history.has(item.url) || excludeSet.has(item.url)) return false;
+      seen.add(item.url);
       return true;
     })
-    .sort((a, b) => (b.points || 0) - (a.points || 0));
+    .map((item) => ({ ...item, score: scoreArticle(item, topic) }))
+    .sort((a, b) => b.score - a.score);
 
-  console.log(`[Scraper] Found ${allHits.length} candidate stories`);
+  console.log(`[RSS] ${candidates.length} unique candidates after filtering`);
 
-  if (!allHits.length) throw new Error(`No news found for "${topic}"`);
+  if (!candidates.length) throw new Error('No fresh articles found. Try a different topic.');
 
-  for (const hit of allHits.slice(0, 6)) {
-    const title = hit.title;
-    const url = hit.url;
-    const source = new URL(url).hostname.replace('www.', '');
-    const pubDate = hit.created_at;
-
-    console.log(`[Scraper] Trying: "${title}" (${hit.points} pts) @ ${source}`);
-
+  // Try top candidates until we get one with full article text
+  for (const item of candidates.slice(0, 8)) {
+    console.log(`[RSS] Trying: "${item.title}" (score: ${item.score}) @ ${item.source}`);
     try {
-      const fullText = await scrapeArticle(url);
+      const fullText = await scrapeArticle(item.url);
       if (fullText.length > 200) {
-        console.log(`[Scraper] Got "${title}" — ${fullText.length} chars`);
-        // Don't mark posted here — only mark after actual Instagram post
-        return { title, url, source, pubDate, fullText, points: hit.points };
+        console.log(`[RSS] Got "${item.title}" — ${fullText.length} chars`);
+        return {
+          title:    item.title,
+          url:      item.url,
+          source:   item.source,
+          pubDate:  item.pubDate,
+          fullText,
+          points:   item.score,
+        };
       }
     } catch (e) {
-      console.log(`[Scraper] Failed ${source}: ${e.message}`);
+      console.log(`[RSS] Failed scrape ${item.source}: ${e.message}`);
     }
   }
 
-  const hit = allHits[0];
+  // Fallback: use summary from RSS if scrape fails
+  const fallback = candidates[0];
   return {
-    title: hit.title,
-    url: hit.url,
-    source: new URL(hit.url).hostname.replace('www.', ''),
-    pubDate: hit.created_at,
-    fullText: hit.title + (hit.story_text ? '\n\n' + hit.story_text : ''),
-    points: hit.points,
+    title:    fallback.title,
+    url:      fallback.url,
+    source:   fallback.source,
+    pubDate:  fallback.pubDate,
+    fullText: fallback.title + (fallback.summary ? '\n\n' + fallback.summary : ''),
+    points:   fallback.score,
   };
 }
 
