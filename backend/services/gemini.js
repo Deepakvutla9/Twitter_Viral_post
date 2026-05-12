@@ -9,63 +9,63 @@ Article Title: ${article.title}
 Source: ${article.source}
 Content: ${article.fullText.slice(0, 2500)}
 
+HEADLINE RULES — this is the most important part:
+- The headline MUST include the most specific, attention-grabbing detail from the article
+- Use the real NAME (person, company, product) that makes this story newsworthy
+- Use a real NUMBER or STAT if one exists in the article
+- BAD headline: "AI Company Makes Big Move" — too generic, no one cares
+- BAD headline: "Thinking Machines Launches" — missing the WHO and WHY
+- GOOD headline: "Mira Murati's AI Beats GPT-4" — name + claim + rival
+- GOOD headline: "Ex-OpenAI CTO Raises $2B" — role + action + number
+- GOOD headline: "Meta Fires 3,600 AI Engineers" — company + action + number
+- The headline should make someone stop scrolling and think "wait, who? what happened?"
+- Max 8 words. Present tense. No punctuation at end.
+
 PATTERN — follow this exactly:
 
 SLIDE 1 — THE HOOK
-Start with the single most shocking or surprising fact from this story.
-Then give 3-4 sentences of real context so the reader understands WHY it's a big deal.
-Use specific numbers, names, comparisons. Make it impossible to swipe away.
-This slide should make someone think "wait, seriously?" and want to read more.
+Headline: Use the most shocking specific detail — a name, number, or company that makes this unmissable.
+Body: 3 complete sentences. The most jaw-dropping fact first, then WHY it matters, then one surprising comparison or consequence.
 
 SLIDE 2 — THE FULL STORY
-This is where you deliver the real value. Write 4-5 sentences covering:
-- What exactly happened and who is involved
-- The key numbers, facts, or quotes that make this real
-- Any background context the reader needs to fully understand the situation
-- What triggered this or why it's happening now
-Readers should feel informed after this slide, not teased.
+Headline: Specific detail about what happened — include a name, number, or quote fragment.
+Body: 3 complete sentences. Exactly what happened, who is involved with their full title/role, and key numbers or quotes from the article.
 
 SLIDE 3 — THE BIGGER PICTURE
-Zoom out and tell the reader what this means for them and the world.
-Write 4-5 sentences covering:
-- The wider implication or consequence of this story
-- Who else is affected and how
-- What might happen next
-- End with a direct question to the reader that makes them think or want to comment
+Headline: The consequence or implication — what does this mean for the industry or people?
+Body: 3 complete sentences. The wider impact, who else gets affected, and end with a direct question to the reader.
 
 RULES:
-- Write like a smart friend explaining the news, not a journalist or press release
+- Write like a smart friend explaining the news, not a journalist
 - Specific always beats vague: "cut 1,200 jobs" not "significant layoffs"
-- No corporate words: no "leverage", "utilize", "in conclusion", "stakeholders"
-- Write EXACTLY 3 sentences per slide body — no more, no less
-- Each sentence must be complete — always end with a period, exclamation mark, or question mark
-- Each sentence should be meaty and informative, around 15-25 words
-- Do NOT write one-word or two-word sentences like "SSH in." or "No strings."
-- Pack real facts, names, and numbers into every sentence
+- No corporate words: no "leverage", "utilize", "stakeholders"
+- EXACTLY 3 sentences per body — each sentence 15-25 words, complete with proper punctuation
+- Do NOT write fragments like "SSH in." or "No strings." — write full informative sentences
+- Pack real names, roles, companies, and numbers into every sentence
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
   "slides": [
     {
       "type": "hook",
-      "headline": "One punchy line, max 8 words, present tense",
-      "body": "1-2 sentences. The most shocking fact. Zero context needed.",
+      "headline": "Specific name/number/company — max 8 words",
+      "body": "3 complete sentences with real facts and names.",
       "emoji": "2 relevant emojis"
     },
     {
       "type": "proof",
-      "headline": "Here Is The Proof",
-      "body": "2-3 sentences. Hard facts, numbers, names that back up slide 1.",
+      "headline": "Specific detail about what happened — max 8 words",
+      "body": "3 complete sentences with key numbers, roles, quotes.",
       "emoji": "2 relevant emojis"
     },
     {
       "type": "twist",
-      "headline": "Nobody Is Talking About This",
-      "body": "1-2 sentences. The implication or twist. End with a question for the reader.",
+      "headline": "The implication — max 8 words",
+      "body": "3 complete sentences ending with a question for the reader.",
       "emoji": "2 relevant emojis"
     }
   ],
-  "caption": "Start with the hook from slide 1. Add 1-2 sentences of context. End with the question from slide 3. Then on a new line add EXACTLY 5 hashtags. Rules for hashtags: only use hashtags that are directly relevant to this specific article. Do not add any brand, company, or product name unless it is explicitly mentioned in the article. Make them viral and specific to the story — think about what someone would search to find this exact news."
+  "caption": "Start with the hook from slide 1. Add 1-2 sentences of context. End with the question from slide 3. Then on a new line add EXACTLY 5 hashtags — only hashtags directly relevant to this specific article. Do not add any brand or product name unless explicitly mentioned in the article."
 }`;
 
   const completion = await groq.chat.completions.create({
