@@ -36,11 +36,12 @@ Write 4-5 sentences covering:
 RULES:
 - Write like a smart friend explaining the news, not a journalist or press release
 - Specific always beats vague: "cut 1,200 jobs" not "significant layoffs"
-- Short punchy sentences. No run-ons.
 - No corporate words: no "leverage", "utilize", "in conclusion", "stakeholders"
-- Each slide body must be 3-4 sentences MAXIMUM — keep it short so nothing gets cut off
-- Every sentence must be complete. Never end mid-thought. End every sentence with a period, exclamation mark, or question mark
-- Each sentence must be under 120 characters so it fits on the image
+- Write EXACTLY 3 sentences per slide body — no more, no less
+- Each sentence must be complete — always end with a period, exclamation mark, or question mark
+- Each sentence should be meaty and informative, around 15-25 words
+- Do NOT write one-word or two-word sentences like "SSH in." or "No strings."
+- Pack real facts, names, and numbers into every sentence
 
 Return ONLY a valid JSON object (no markdown, no explanation):
 {
