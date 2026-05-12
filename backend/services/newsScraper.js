@@ -74,8 +74,9 @@ const RSS_FEEDS = [
   { name: 'Wired AI',          url: 'https://www.wired.com/feed/category/artificial-intelligence/latest/rss' },
   { name: 'MIT Tech Review',   url: 'https://www.technologyreview.com/feed/' },
   { name: 'TechCrunch',        url: 'https://techcrunch.com/feed/' },
-  { name: 'Reuters Tech',      url: 'https://feeds.reuters.com/reuters/technologyNews' },
-  { name: 'BBC Tech',          url: 'http://feeds.bbci.co.uk/news/technology/rss.xml' },
+  { name: 'BBC Tech',          url: 'https://feeds.bbci.co.uk/news/technology/rss.xml' },
+  { name: 'The Verge',         url: 'https://www.theverge.com/rss/index.xml' },
+  { name: 'Wired',             url: 'https://www.wired.com/feed/rss' },
 ];
 
 // ── HACKERNEWS ALGOLIA SEARCH ────────────────────────────────────────────────
