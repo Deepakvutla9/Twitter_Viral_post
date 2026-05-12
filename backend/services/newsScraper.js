@@ -104,10 +104,12 @@ function scoreArticle(item, topic) {
 
   let score = 0;
 
-  // Topic match
+  // Topic match — heavily weighted so topic articles always win
   for (const word of topicWords) {
-    if (word.length > 2 && text.includes(word)) score += 10;
+    if (word.length > 2 && text.includes(word)) score += 30;
   }
+  // Full topic phrase match bonus
+  if (text.includes(topic.toLowerCase())) score += 50;
 
   // AI keyword relevance
   for (const kw of AI_KEYWORDS) {
@@ -157,11 +159,23 @@ async function scrapeArticle(url) {
   return all.slice(0, 10).join('\n\n');
 }
 
+function getTopicFeeds(topic) {
+  const slug = topic.toLowerCase().trim().replace(/\s+/g, '-');
+  return [
+    { name: `TechCrunch:${topic}`,    url: `https://techcrunch.com/tag/${slug}/feed/` },
+    { name: `VentureBeat:${topic}`,   url: `https://venturebeat.com/tag/${slug}/feed/` },
+  ];
+}
+
 async function fetchNewsArticle(topic, exclude = []) {
-  console.log(`[RSS] Fetching from ${RSS_FEEDS.length} feeds — topic: "${topic}"`);
+  console.log(`[RSS] Fetching from feeds — topic: "${topic}"`);
+
+  // Always include topic-specific tag feeds first for relevance
+  const topicFeeds = getTopicFeeds(topic);
+  const allFeeds = [...topicFeeds, ...RSS_FEEDS];
 
   // Fetch all feeds in parallel
-  const results = await Promise.all(RSS_FEEDS.map(fetchRSSFeed));
+  const results = await Promise.all(allFeeds.map(fetchRSSFeed));
   const allItems = results.flat();
 
   console.log(`[RSS] Total articles found: ${allItems.length}`);
