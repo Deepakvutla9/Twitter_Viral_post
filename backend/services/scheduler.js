@@ -76,6 +76,10 @@ function getStatus() {
   return jobStatus;
 }
 
-function autoResume() {}
+function autoResume() {
+  const defaultCron = process.env.DEFAULT_CRON || '0 */6 * * *'; // every 6 hours by default
+  console.log(`[Scheduler] Auto-resuming with schedule: ${defaultCron}`);
+  startScheduler(defaultCron);
+}
 
 module.exports = { runPipeline, startScheduler, stopScheduler, getStatus, autoResume };
