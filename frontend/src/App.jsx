@@ -298,8 +298,10 @@ export default function App() {
                               <img src={`${IMG_BASE}${imageUrls[i]}`} alt={`Slide ${i + 1}`} className="slide-img" />
                             )}
                             <div className="slide-info">
-                              <span className="slide-type">FRAME {i + 1}</span>
-                              <div className="slide-headline">{slide.headline}</div>
+                              <span className="slide-type">FRAME {i + 1} — {slide.type === 'hook' ? 'PHOTO' : 'TEXT'}</span>
+                              <div className="slide-headline">
+                                {slide.type === 'hook' ? slide.headline : slide.title}
+                              </div>
                             </div>
                           </div>
                         ))}

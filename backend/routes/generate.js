@@ -8,8 +8,8 @@ router.post('/', async (req, res) => {
   if (!article || !topic) return res.status(400).json({ error: 'article and topic are required' });
 
   try {
-    const { slides, caption } = await generateCarouselSlides(article, topic);
-    const images = await composeSlideImages(slides, article.ogImage || null);
+    const { slides, caption, imagePrompt } = await generateCarouselSlides(article, topic);
+    const images = await composeSlideImages(slides, article.ogImage || null, imagePrompt || null);
     const imageUrls = images.map((img) => `/temp/${img.filename}`);
     res.json({ slides, caption, imageUrls, imagePaths: images.map((i) => i.filepath) });
   } catch (err) {
