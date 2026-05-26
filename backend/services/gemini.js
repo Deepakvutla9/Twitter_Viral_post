@@ -3,7 +3,7 @@ const Groq = require('groq-sdk');
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 async function generateCarouselSlides(article, topic) {
-  const prompt = `You are a viral Twitter/X carousel creator. You turn tech news into exactly 2 punchy slides.
+  const prompt = `You are a viral social media news carousel creator.
 
 Article Title: ${article.title}
 Source: ${article.source}
@@ -11,38 +11,35 @@ Content: ${article.fullText.slice(0, 5000)}
 
 Generate EXACTLY 2 slides:
 
-SLIDE 1 — THE HOOK (photo card)
-- headline: The single most shocking fact. Lead with famous company/person name. Max 10 words. ALL CAPS feel. No punctuation at end.
-- subheadline: One punchy sentence that adds context or raises stakes. Max 12 words.
+SLIDE 1 — HOOK
+- badge: One word category tag. Examples: "NEWS", "BREAKING", "AI UPDATE", "EXCLUSIVE", "ALERT"
+- teaser: Short curiosity line ending with →. Example: "What happened? →" or "Here's the truth →"
 
-SLIDE 2 — THE DETAIL (text card)
-- title: Same headline as slide 1 but with a number prefix, e.g. "1.  HEADLINE HERE"
-- label: A short section label like "THE BREAKDOWN:", "KEY FACTS:", "WHY IT MATTERS:", etc.
-- body: 3-4 precise sentences. Specific names, numbers, dates. No fluff. Written like a smart friend texting you breaking news. End with a provocative question that makes readers comment.
+SLIDE 2 — CONTEXT
+- body: 4-5 sentences. Factual, specific, conversational. Include names, numbers, dates. End with a provocative question.
+  IMPORTANT: Wrap the single most important phrase (5-8 words) in **double asterisks** to highlight it. Example: "OpenAI just fired its CTO. **Sam Altman approved the decision personally** despite public denial."
 
 RULES:
-- NEVER invent facts not in the article
-- Specific beats vague: "cut 1,200 jobs" not "significant layoffs"
-- No corporate jargon
-- Body: 60-90 words
+- NEVER invent facts
+- Specific beats vague
+- Body must be 70-100 words
+- Only ONE highlighted phrase in body
 
 Return ONLY valid JSON:
 {
   "slides": [
     {
       "type": "hook",
-      "headline": "SHOCKING HEADLINE MAX 10 WORDS",
-      "subheadline": "One punchy context sentence max 12 words"
+      "badge": "NEWS",
+      "teaser": "What happened? →"
     },
     {
       "type": "detail",
-      "title": "1.  SHOCKING HEADLINE MAX 10 WORDS",
-      "label": "THE BREAKDOWN:",
-      "body": "3-4 sentences with specific facts. End with a provocative question."
+      "body": "4-5 sentences with **one key phrase highlighted**. End with a question."
     }
   ],
-  "imagePrompt": "Cinematic photorealistic image prompt for Stable Diffusion. Describe a vivid scene related to the article. NO text, NO logos, NO UI. Example: 'Cinematic wide shot of a futuristic server room glowing blue, dramatic lighting, 4k, hyperrealistic'. Max 40 words.",
-  "caption": "Hook sentence. 1-2 sentences context. Provocative question. New line, then EXACTLY 5 relevant hashtags."
+  "imagePrompt": "Cinematic photorealistic scene for this article. NO text, NO logos, NO UI elements. Dramatic lighting, 4k. Max 35 words.",
+  "caption": "1-2 hook sentences. Provocative question. New line, EXACTLY 5 relevant hashtags."
 }`;
 
   const completion = await groq.chat.completions.create({
@@ -80,7 +77,7 @@ Return ONLY valid JSON:
     parsed = JSON.parse(text);
   }
 
-  // Hard-enforce exactly 2 slides regardless of what the model returns
+  // Hard-enforce exactly 2 slides
   const allSlides = parsed.slides || [];
   const hook   = allSlides.find(s => s.type === 'hook')   || allSlides[0];
   const detail = allSlides.find(s => s.type === 'detail') || allSlides[1];
@@ -88,10 +85,8 @@ Return ONLY valid JSON:
   if (hook)   hook.type   = 'hook';
   if (detail) detail.type = 'detail';
 
-  // Always use the original article title as headline — it's already punchy and credible
-  const articleTitle = article.title.toUpperCase();
-  if (hook)   hook.headline = articleTitle;
-  if (detail) detail.title  = `1.  ${article.title}`;
+  // Always use the original article title as headline on slide 1
+  if (hook) hook.headline = article.title;
 
   parsed.slides = [hook, detail].filter(Boolean).slice(0, 2);
   return parsed;
