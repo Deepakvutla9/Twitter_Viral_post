@@ -1,16 +1,30 @@
-# React + Vite
+# Synthetic Minds — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite dashboard for the Synthetic Minds carousel generator.
 
-Currently, two official plugins are available:
+## What It Does
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Enter a topic to fetch a trending news article
+- Preview the 2-slide carousel (photo hook + context slide)
+- Post directly to Instagram or let the scheduler handle it automatically
 
-## React Compiler
+## Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- React 19 + Vite
+- Axios for API calls
+- Deployed on Vercel
 
-## Expanding the ESLint configuration
+## Local Development
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm install
+npm run dev    # http://localhost:5173
+```
+
+## Environment Variables
+
+```env
+VITE_API_URL=    # Backend URL — defaults to http://localhost:3001/api
+```
+
+Set `VITE_API_URL` to your Render backend URL in Vercel's environment settings for production.
