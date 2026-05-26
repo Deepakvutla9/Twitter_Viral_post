@@ -80,14 +80,18 @@ Return ONLY valid JSON:
     parsed = JSON.parse(text);
   }
 
-  // Hard-enforce exactly 2 slides regardless of what the model returns:
-  // Slide 0 = hook (photo), Slide 1 = detail (text)
+  // Hard-enforce exactly 2 slides regardless of what the model returns
   const allSlides = parsed.slides || [];
   const hook   = allSlides.find(s => s.type === 'hook')   || allSlides[0];
   const detail = allSlides.find(s => s.type === 'detail') || allSlides[1];
 
   if (hook)   hook.type   = 'hook';
   if (detail) detail.type = 'detail';
+
+  // Always use the original article title as headline — it's already punchy and credible
+  const articleTitle = article.title.toUpperCase();
+  if (hook)   hook.headline = articleTitle;
+  if (detail) detail.title  = `1.  ${article.title}`;
 
   parsed.slides = [hook, detail].filter(Boolean).slice(0, 2);
   return parsed;
