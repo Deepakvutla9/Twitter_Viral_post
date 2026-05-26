@@ -315,26 +315,34 @@ async function composeSlideImages(slides, ogImage = null, imagePrompt = null) {
   const timestamp = Date.now();
   const results   = [];
 
-  // Get background image: HF first → article thumbnail → null (pure dark bg)
-  let imgBase64 = null;
-  if (imagePrompt) {
-    console.log(`[ImageComposer] HF generating: "${imagePrompt}"`);
-    imgBase64 = await generateHFImage(imagePrompt);
-  }
-  if (!imgBase64 && ogImage) {
-    imgBase64 = await fetchImageBase64(ogImage);
-  }
+  // Slide 1 → article's real photo (ogImage)
+  // Slide 2 → HF AI-generated image (different visual, same topic)
+  // Each falls back to the other if unavailable, then to null (pure dark bg)
+  console.log('[ImageComposer] Fetching images in parallel...');
+  const [articleImg, hfImg] = await Promise.all([
+    ogImage     ? fetchImageBase64(ogImage)       : Promise.resolve(null),
+    imagePrompt ? generateHFImage(imagePrompt)    : Promise.resolve(null),
+  ]);
+
+  console.log(`[ImageComposer] Article photo: ${articleImg ? '✓' : '✗'}  |  HF image: ${hfImg ? '✓' : '✗'}`);
+
+  // Per-slide image assignment
+  const slideImages = [
+    articleImg || hfImg,   // slide 1: real photo preferred
+    hfImg      || articleImg, // slide 2: AI image preferred
+  ];
 
   const total = slides.length;
 
   for (let i = 0; i < slides.length; i++) {
-    const slide = slides[i];
+    const slide   = slides[i];
+    const img     = slideImages[i] || null;
     let svg;
 
     if (slide.type === 'hook') {
-      svg = buildHookSlide(slide, imgBase64);
+      svg = buildHookSlide(slide, img);
     } else {
-      svg = buildContextSlide(slide, imgBase64, i + 1, total);
+      svg = buildContextSlide(slide, img, i + 1, total);
     }
 
     const filename = `slide_${timestamp}_${i}.jpg`;
