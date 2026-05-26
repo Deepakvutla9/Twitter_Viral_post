@@ -105,13 +105,13 @@ function renderLinesSimple(lines, x, startY, lineH, fontSize, normalFill, hlFill
 // ── SHARED ELEMENTS ───────────────────────────────────────────────────────────
 
 function logoSvg() {
-  // Top-left: glass pill badge "CAROUSEL.AI"
+  // Top-left: glass pill badge
   return `
-    <rect x="${PAD}" y="44" width="220" height="52" rx="26"
+    <rect x="${PAD}" y="44" width="280" height="52" rx="26"
       fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
-    <text x="${PAD + 110}" y="79"
+    <text x="${PAD + 140}" y="79"
       font-family="${FONT}" font-size="20" font-weight="900"
-      fill="${WHITE}" text-anchor="middle" letter-spacing="2">CAROUSEL.AI</text>`;
+      fill="${WHITE}" text-anchor="middle" letter-spacing="2">SHADESOFIRONY</text>`;
 }
 
 function socialBar() {
@@ -121,10 +121,10 @@ function socialBar() {
     <rect x="0" y="${H - 58}" width="${W}" height="1" fill="rgba(255,255,255,0.12)"/>
     <text x="${PAD}" y="${H - 20}"
       font-family="${FONT_B}" font-size="22" font-weight="600"
-      fill="rgba(255,255,255,0.55)" letter-spacing="1">@carousel.ai</text>
+      fill="rgba(255,255,255,0.55)" letter-spacing="1">@shadesofirony</text>
     <text x="${W - PAD}" y="${H - 20}"
       font-family="${FONT_B}" font-size="22" font-weight="600"
-      fill="rgba(255,255,255,0.55)" text-anchor="end" letter-spacing="1">carousel.ai</text>`;
+      fill="rgba(255,255,255,0.55)" text-anchor="end" letter-spacing="1">shadesofirony</text>`;
 }
 
 // ── SLIDE 1: HOOK ─────────────────────────────────────────────────────────────
