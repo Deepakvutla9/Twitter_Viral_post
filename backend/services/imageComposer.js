@@ -43,7 +43,9 @@ function autoHighlight(title) {
 // ── TEXT HIGHLIGHT PARSER ─────────────────────────────────────────────────────
 // Parses "hello **world** today" → [{text:"hello ", hl:false},{text:"world",hl:true},{text:" today",hl:false}]
 function parseSegments(raw) {
-  const parts = String(raw).split(/\*\*(.*?)\*\*/);
+  // Normalize: remove spaces before punctuation (e.g. "small ." → "small.")
+  const cleaned = String(raw).replace(/\s+([.,!?;:])/g, '$1');
+  const parts = cleaned.split(/\*\*(.*?)\*\*/);
   return parts.map((p, i) => ({ text: p, hl: i % 2 === 1 })).filter(s => s.text);
 }
 
@@ -52,8 +54,15 @@ function wrapHighlighted(raw, maxChars) {
   const segments = parseSegments(raw);
   const words = [];
   for (const seg of segments) {
-    for (const w of seg.text.split(/\s+/).filter(Boolean)) {
-      words.push({ w, hl: seg.hl });
+    const parts = seg.text.split(/\s+/).filter(Boolean);
+    for (let i = 0; i < parts.length; i++) {
+      const w = parts[i];
+      // If word is only punctuation (e.g. "." "," "!") merge it onto the previous word
+      if (/^[.,!?;:]+$/.test(w) && words.length > 0) {
+        words[words.length - 1].w += w;
+      } else {
+        words.push({ w, hl: seg.hl });
+      }
     }
   }
   const lines = [];
@@ -119,10 +128,9 @@ function socialBar() {
 }
 
 // ── SLIDE 1: HOOK ─────────────────────────────────────────────────────────────
-// Full photo, heavy bottom gradient, badge pill, huge headline, teaser line
+// Full photo, heavy bottom gradient, badge pill, huge headline (no teaser)
 function buildHookSlide(slide, imgBase64) {
   const rawTitle  = autoHighlight(slide.headline || '');
-  const teaser    = slide.teaser || 'The full story →';
   const badge     = (slide.badge || 'NEWS').toUpperCase();
 
   // Background
@@ -136,15 +144,15 @@ function buildHookSlide(slide, imgBase64) {
   // Adaptive font size so full title always fits
   // Short title → big font / fewer lines; long title → smaller font / more lines
   const titleLen = rawTitle.replace(/\*\*/g, '').length;
-  const HEAD_SIZE = titleLen <= 35 ? 92 : titleLen <= 55 ? 80 : 70;
-  const HEAD_LH   = Math.round(HEAD_SIZE * 1.12);
+  const HEAD_SIZE = titleLen <= 35 ? 96 : titleLen <= 55 ? 84 : 72;
+  const HEAD_LH   = Math.round(HEAD_SIZE * 1.13);
   const HEAD_MAX  = titleLen <= 35 ? 15 : titleLen <= 55 ? 17 : 20;
-  const MAX_LINES = titleLen <= 35 ? 2 : titleLen <= 55 ? 3 : 4;
+  const MAX_LINES = titleLen <= 35 ? 3 : titleLen <= 55 ? 4 : 5;
   const CAP_HEIGHT = Math.round(HEAD_SIZE * 0.72);
 
   const SOCIAL_TOP  = H - 58;
-  const TEASER_Y    = SOCIAL_TOP - 46;
-  const HEAD_BOTTOM = TEASER_Y - 32;
+  // Headline anchored to bottom of slide, above social bar with comfortable padding
+  const HEAD_BOTTOM = SOCIAL_TOP - 52;
 
   // Pre-wrap to know actual line count
   const headLines    = wrapHighlighted(rawTitle, HEAD_MAX);
@@ -165,22 +173,16 @@ function buildHookSlide(slide, imgBase64) {
       font-family="${FONT}" font-size="22" font-weight="900"
       fill="${BLACK}" text-anchor="middle" letter-spacing="3">${esc(badge)}</text>`;
 
-  // Headline — 2 lines max
+  // Headline — fills bottom area above social bar, no teaser
   const headSvg = renderLinesSimple(headLines.slice(0, maxHeadLines), PAD, HEAD_Y, HEAD_LH, HEAD_SIZE, WHITE, ACCENT);
-
-  // Teaser
-  const teaserSvg = `
-    <text x="${PAD}" y="${TEASER_Y}"
-      font-family="${FONT_B}" font-size="32" font-weight="700"
-      fill="rgba(255,255,255,0.80)">${esc(teaser)}</text>`;
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="grad1" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%"   stop-color="rgba(0,0,0,0)"/>
-      <stop offset="48%"  stop-color="rgba(0,0,0,0)"/>
-      <stop offset="60%"  stop-color="rgba(0,0,0,0.65)"/>
-      <stop offset="74%"  stop-color="rgba(0,0,0,0.90)"/>
+      <stop offset="42%"  stop-color="rgba(0,0,0,0)"/>
+      <stop offset="56%"  stop-color="rgba(0,0,0,0.60)"/>
+      <stop offset="72%"  stop-color="rgba(0,0,0,0.88)"/>
       <stop offset="100%" stop-color="rgba(0,0,0,0.98)"/>
     </linearGradient>
     <linearGradient id="grad1Fallback" x1="0" y1="0" x2="1" y2="1">
@@ -193,13 +195,12 @@ function buildHookSlide(slide, imgBase64) {
   ${logoSvg()}
   ${badgeSvg}
   ${headSvg}
-  ${teaserSvg}
   ${socialBar()}
 </svg>`;
 }
 
 // ── SLIDE 2: CONTEXT ──────────────────────────────────────────────────────────
-// Full photo, heavy gradient, large body text with cyan highlights, slide counter
+// Full photo, heavy gradient, large body text with cyan highlights, max context
 function buildContextSlide(slide, imgBase64, slideNum, totalSlides) {
   const rawBody = slide.body || '';
 
@@ -210,44 +211,48 @@ function buildContextSlide(slide, imgBase64, slideNum, totalSlides) {
     : `<rect width="${W}" height="${H}" fill="#080808"/>
        <rect x="0" y="0" width="${W}" height="${H}" fill="url(#grad2)"/>`;
 
-  // Slide counter top-right
-  const counter = `
-    <text x="${W - PAD}" y="82"
-      font-family="${FONT}" font-size="28" font-weight="900"
-      fill="rgba(255,255,255,0.70)" text-anchor="end"
-      letter-spacing="2">${slideNum}/${totalSlides}</text>`;
+  // Body text — vertically centered with headroom + footroom
+  const BODY_SIZE  = 48;
+  const BODY_LH    = 66;
+  const BODY_MAX   = 28;
+  const MAX_LINES  = 10;
 
-  // Body text — large, with cyan highlights
-  const BODY_SIZE = 52;
-  const BODY_LH   = 68;
-  const BODY_MAX  = 30;
-  const BODY_Y    = 510;
-  const MAX_LINES = Math.floor((H - 80 - BODY_Y) / BODY_LH);
+  // Trim body to last complete sentence that fits within MAX_LINES
+  function trimToCompleteSentence(text, maxLines, maxChars) {
+    const allLines = wrapHighlighted(text, maxChars);
+    if (allLines.length <= maxLines) return allLines;
+    // Join words from first maxLines lines, then cut at last sentence-ending punctuation
+    const words = allLines.slice(0, maxLines).flat().map(w => w.w).join(' ');
+    const match = words.match(/^(.*[.!?])\s*/s);
+    if (match) {
+      return wrapHighlighted(match[1], maxChars);
+    }
+    return allLines.slice(0, maxLines);
+  }
 
-  const bodyLines = wrapHighlighted(rawBody, BODY_MAX).slice(0, MAX_LINES);
-  const bodySvg   = renderLinesSimple(bodyLines, PAD, BODY_Y, BODY_LH, BODY_SIZE, WHITE, ACCENT);
+  const bodyLines = trimToCompleteSentence(rawBody, MAX_LINES, BODY_MAX);
 
-  // Arrow
-  const arrowY = BODY_Y + bodyLines.length * BODY_LH + 28;
-  const arrow  = arrowY < H - 80
-    ? `<text x="${PAD}" y="${arrowY}" font-family="${FONT}" font-size="48" font-weight="900" fill="${WHITE}">→</text>`
-    : '';
+  // Center the block vertically between top padding (120px) and social bar
+  const SOCIAL_TOP   = H - 58;
+  const AVAIL_TOP    = 120;
+  const AVAIL_BOTTOM = SOCIAL_TOP - 40;
+  const blockHeight  = bodyLines.length * BODY_LH;
+  const BODY_Y       = Math.round((AVAIL_TOP + AVAIL_BOTTOM - blockHeight) / 2) + BODY_LH;
+
+  const bodySvg = renderLinesSimple(bodyLines, PAD, BODY_Y, BODY_LH, BODY_SIZE, WHITE, ACCENT);
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="grad2" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"   stop-color="rgba(0,0,0,0)"/>
-      <stop offset="38%"  stop-color="rgba(0,0,0,0.20)"/>
-      <stop offset="58%"  stop-color="rgba(0,0,0,0.88)"/>
-      <stop offset="100%" stop-color="rgba(0,0,0,0.98)"/>
+      <stop offset="0%"   stop-color="rgba(0,0,0,0.75)"/>
+      <stop offset="40%"  stop-color="rgba(0,0,0,0.82)"/>
+      <stop offset="70%"  stop-color="rgba(0,0,0,0.90)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.97)"/>
     </linearGradient>
   </defs>
 
   ${bg}
-  ${logoSvg()}
-  ${counter}
   ${bodySvg}
-  ${arrow}
   ${socialBar()}
 </svg>`;
 }

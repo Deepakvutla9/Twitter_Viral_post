@@ -16,13 +16,13 @@ SLIDE 1 — HOOK
 - teaser: Short curiosity line ending with →. Example: "What happened? →" or "Here's the truth →"
 
 SLIDE 2 — CONTEXT
-- body: 4-5 sentences. Factual, specific, conversational. Include names, numbers, dates. End with a provocative question.
+- body: 5-6 sentences. Factual, specific, conversational. Include names, numbers, dates. End with a provocative question.
   IMPORTANT: Wrap the single most important phrase (5-8 words) in **double asterisks** to highlight it. Example: "OpenAI just fired its CTO. **Sam Altman approved the decision personally** despite public denial."
 
 RULES:
 - NEVER invent facts
 - Specific beats vague
-- Body must be 70-100 words
+- Body must be 80-100 words
 - Only ONE highlighted phrase in body
 
 Return ONLY valid JSON:
