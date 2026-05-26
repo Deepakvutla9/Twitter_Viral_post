@@ -133,29 +133,35 @@ function buildHookSlide(slide, imgBase64) {
     : `<rect width="${W}" height="${H}" fill="#0a0a0a"/>
        <rect x="0" y="0" width="${W}" height="${H}" fill="url(#grad1Fallback)"/>`;
 
-  // Layout: work bottom-up from social bar
+  // Fixed layout — bottom-up, 2 headline lines max for punch
+  const HEAD_SIZE    = 92;
+  const HEAD_LH      = 102;
+  const HEAD_MAX     = 17;
+  const CAP_HEIGHT   = Math.round(HEAD_SIZE * 0.72); // ~66px — top of glyph above baseline
+
   const SOCIAL_TOP   = H - 58;
-  const TEASER_Y     = SOCIAL_TOP - 48;    // teaser baseline
-  const HEAD_SIZE    = 84;
-  const HEAD_LH      = 92;
-  const HEAD_MAX     = 18;
+  const TEASER_Y     = SOCIAL_TOP - 46;         // teaser baseline
+  const HEAD_BOTTOM  = TEASER_Y - 32;           // last headline baseline
+  const maxHeadLines = 2;                        // always 2 lines — short & punchy
+  const HEAD_Y       = HEAD_BOTTOM - (maxHeadLines - 1) * HEAD_LH; // first headline baseline
+
+  // Badge sits clearly above glyph top with 28px breathing room
+  const BADGE_BOTTOM = HEAD_Y - CAP_HEIGHT - 28;
+  const BADGE_H      = 46;
+  const BADGE_Y      = BADGE_BOTTOM - BADGE_H;
+
   const headLines    = wrapHighlighted(rawTitle, HEAD_MAX);
-  const maxHeadLines = Math.min(headLines.length, 3);
-  const HEAD_BOTTOM  = TEASER_Y - 28;      // bottom of last headline line
-  const HEAD_Y       = HEAD_BOTTOM - (maxHeadLines - 1) * HEAD_LH;
-  // Badge must clear the headline glyphs — cap height ~= 0.72 * font size
-  const BADGE_Y      = HEAD_Y - Math.round(HEAD_SIZE * 0.72) - 56; // safe gap above glyphs
 
   // Badge pill
   const BADGE_W = badge.length * 16 + 48;
   const badgeSvg = `
-    <rect x="${PAD}" y="${BADGE_Y}" width="${BADGE_W}" height="46" rx="23"
+    <rect x="${PAD}" y="${BADGE_Y}" width="${BADGE_W}" height="${BADGE_H}" rx="${BADGE_H / 2}"
       fill="${ACCENT}"/>
-    <text x="${PAD + BADGE_W / 2}" y="${BADGE_Y + 30}"
+    <text x="${PAD + BADGE_W / 2}" y="${BADGE_Y + BADGE_H * 0.65}"
       font-family="${FONT}" font-size="22" font-weight="900"
       fill="${BLACK}" text-anchor="middle" letter-spacing="3">${esc(badge)}</text>`;
 
-  // Headline
+  // Headline — 2 lines max
   const headSvg = renderLinesSimple(headLines.slice(0, maxHeadLines), PAD, HEAD_Y, HEAD_LH, HEAD_SIZE, WHITE, ACCENT);
 
   // Teaser
@@ -168,9 +174,9 @@ function buildHookSlide(slide, imgBase64) {
   <defs>
     <linearGradient id="grad1" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%"   stop-color="rgba(0,0,0,0)"/>
-      <stop offset="45%"  stop-color="rgba(0,0,0,0)"/>
-      <stop offset="62%"  stop-color="rgba(0,0,0,0.75)"/>
-      <stop offset="82%"  stop-color="rgba(0,0,0,0.93)"/>
+      <stop offset="48%"  stop-color="rgba(0,0,0,0)"/>
+      <stop offset="60%"  stop-color="rgba(0,0,0,0.65)"/>
+      <stop offset="74%"  stop-color="rgba(0,0,0,0.90)"/>
       <stop offset="100%" stop-color="rgba(0,0,0,0.98)"/>
     </linearGradient>
     <linearGradient id="grad1Fallback" x1="0" y1="0" x2="1" y2="1">
