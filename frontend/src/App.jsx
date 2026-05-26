@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   fetchNews,
   generateSlides,
+  generateCustomSlides,
   postCarousel,
   runPipeline,
   startScheduler,
@@ -35,6 +36,13 @@ export default function App() {
   const [error, setError]           = useState(null);
   const [posted, setPosted]         = useState(null);
   const [activeTab, setActiveTab]   = useState('manual');
+
+  // Create Your Own state
+  const [customTitle, setCustomTitle]   = useState('');
+  const [customBody, setCustomBody]     = useState('');
+  const [customImage, setCustomImage]   = useState(null);
+  const [customPreview, setCustomPreview] = useState(null);
+  const fileInputRef = useRef(null);
   const [schedulerStatus, setSchedulerStatus] = useState(null);
   const [cronExpression, setCronExpression]   = useState('0 9 * * *');
 
@@ -134,6 +142,34 @@ export default function App() {
     try { await stopScheduler(); fetchStatus(); } catch (e) { setError(e.message); }
   }
 
+  async function handleCustomGenerate() {
+    if (!customTitle.trim() || !customBody.trim()) return setError('Title and content are required');
+    setError(null);
+    setSlides([]);
+    setImageUrls([]);
+    setPosted(null);
+    setLoad('generate', true);
+    try {
+      const result = await generateCustomSlides(customTitle, customBody, customImage);
+      setSlides(result.slides);
+      setCaption(result.caption);
+      setImageUrls(result.imageUrls);
+      setImagePaths(result.imagePaths);
+    } catch (e) {
+      setError(e.response?.data?.error || e.message);
+    } finally {
+      setLoad('generate', false);
+    }
+  }
+
+  function handleImageSelect(file) {
+    if (!file) return;
+    setCustomImage(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setCustomPreview(e.target.result);
+    reader.readAsDataURL(file);
+  }
+
   // Step states
   const step1Done   = !!article;
   const step2Done   = slides.length > 0;
@@ -163,6 +199,9 @@ export default function App() {
         <div className="tabs">
           <button className={activeTab === 'manual' ? 'tab active' : 'tab'} onClick={() => setActiveTab('manual')}>
             MANUAL
+          </button>
+          <button className={activeTab === 'custom' ? 'tab active' : 'tab'} onClick={() => setActiveTab('custom')}>
+            CREATE YOUR OWN
           </button>
           <button className={activeTab === 'auto' ? 'tab active' : 'tab'} onClick={() => setActiveTab('auto')}>
             AUTO SCHEDULER
@@ -355,6 +394,157 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+          </div>
+        )}
+
+        {/* ── CREATE YOUR OWN ── */}
+        {activeTab === 'custom' && (
+          <div className="workflow">
+
+            {/* INPUT */}
+            <div className={`step ${slides.length > 0 ? 'done' : 'active'}`}>
+              <div className="step-connector">
+                <div className="step-num">{slides.length > 0 ? '✓' : '01'}</div>
+                <div className="step-line" />
+              </div>
+              <div className="step-body">
+                <div className="step-header">
+                  <span className="step-label">YOUR CONTENT</span>
+                  <span className="step-tag">{slides.length > 0 ? 'COMPLETE' : 'PENDING'}</span>
+                </div>
+                <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+
+                  {/* Title */}
+                  <div className="field">
+                    <label>ARTICLE TITLE</label>
+                    <input
+                      type="text"
+                      placeholder="Enter the headline..."
+                      value={customTitle}
+                      onChange={(e) => setCustomTitle(e.target.value)}
+                      style={{ width: '100%', padding: '0.6rem 0.8rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '0.85rem' }}
+                    />
+                  </div>
+
+                  {/* Body */}
+                  <div className="field">
+                    <label>ARTICLE CONTENT</label>
+                    <textarea
+                      placeholder="Paste the article body here..."
+                      value={customBody}
+                      onChange={(e) => setCustomBody(e.target.value)}
+                      rows={6}
+                      style={{ width: '100%', padding: '0.6rem 0.8rem', background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '0.82rem', resize: 'vertical' }}
+                    />
+                  </div>
+
+                  {/* Image upload */}
+                  <div className="field">
+                    <label>SLIDE IMAGE <span style={{ color: 'var(--text-mute)', fontWeight: 400 }}>(optional — AI generates one if not provided)</span></label>
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => { e.preventDefault(); handleImageSelect(e.dataTransfer.files[0]); }}
+                      style={{
+                        border: '2px dashed var(--border)', borderRadius: '8px',
+                        padding: '1.5rem', textAlign: 'center', cursor: 'pointer',
+                        background: 'var(--bg3)', transition: 'border-color 0.2s',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--cyan)'}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+                    >
+                      {customPreview ? (
+                        <img src={customPreview} alt="preview" style={{ maxHeight: '160px', borderRadius: '6px', objectFit: 'cover' }} />
+                      ) : (
+                        <span style={{ fontFamily: 'var(--mono)', fontSize: '0.78rem', color: 'var(--text-dim)' }}>
+                          ↑ DRAG & DROP or click to upload image
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={(e) => handleImageSelect(e.target.files[0])}
+                    />
+                    {customImage && (
+                      <button
+                        onClick={() => { setCustomImage(null); setCustomPreview(null); }}
+                        style={{ marginTop: '0.4rem', background: 'none', border: 'none', color: 'var(--text-mute)', fontFamily: 'var(--mono)', fontSize: '0.72rem', cursor: 'pointer' }}
+                      >
+                        ✕ Remove image
+                      </button>
+                    )}
+                  </div>
+
+                  <button className="btn btn-cyan" onClick={handleCustomGenerate} disabled={loading.generate}>
+                    {loading.generate ? 'GENERATING...' : '⚡ GENERATE CAROUSEL'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* PREVIEW */}
+            {slides.length > 0 && (
+              <div className="step done">
+                <div className="step-connector">
+                  <div className="step-num">✓</div>
+                  <div className="step-line" />
+                </div>
+                <div className="step-body">
+                  <div className="step-header">
+                    <span className="step-label">CAROUSEL PREVIEW</span>
+                    <span className="step-tag">READY</span>
+                  </div>
+                  <div className="panel">
+                    <div className="slides-label">SLIDE PREVIEW — {slides.length} FRAMES</div>
+                    <div className="slides-grid">
+                      {slides.map((slide, i) => (
+                        <div key={i} className="slide-card">
+                          {imageUrls[i] && (
+                            <img src={`${IMG_BASE}${imageUrls[i]}`} alt={`Slide ${i + 1}`} className="slide-img" />
+                          )}
+                          <div className="slide-info">
+                            <span className="slide-type">FRAME {i + 1} — {slide.type === 'hook' ? 'PHOTO' : 'TEXT'}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* DEPLOY */}
+            {slides.length > 0 && (
+              <div className={`step ${posted ? 'done' : 'active'}`}>
+                <div className="step-connector">
+                  <div className="step-num">{posted ? '✓' : '02'}</div>
+                  <div className="step-line" style={{ minHeight: 0, flex: 0 }} />
+                </div>
+                <div className="step-body">
+                  <div className="step-header">
+                    <span className="step-label">DEPLOY TO INSTAGRAM</span>
+                    <span className="step-tag">{posted ? 'POSTED' : 'READY'}</span>
+                  </div>
+                  <div className="panel">
+                    <div className="caption-section">
+                      <span className="caption-label">CAPTION PAYLOAD</span>
+                      <textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={5} />
+                    </div>
+                    {posted ? (
+                      <div className="posted-success">✓ CAROUSEL DEPLOYED — POST ID: {posted}</div>
+                    ) : (
+                      <button className="btn btn-instagram btn-full" onClick={handlePost} disabled={loading.post}>
+                        {loading.post ? 'DEPLOYING...' : '▶ DEPLOY CAROUSEL TO INSTAGRAM'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
           </div>
         )}

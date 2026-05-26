@@ -5,11 +5,12 @@ const path = require('path');
 const { cleanOldImages } = require('./services/imageComposer');
 const { autoResume } = require('./services/scheduler');
 
-const scrapeRoutes = require('./routes/scrape');
-const generateRoutes = require('./routes/generate');
-const instagramRoutes = require('./routes/instagram');
-const schedulerRoutes = require('./routes/scheduler');
-const trendingRoutes = require('./routes/trending');
+const scrapeRoutes         = require('./routes/scrape');
+const generateRoutes       = require('./routes/generate');
+const generateCustomRoutes = require('./routes/generateCustom');
+const instagramRoutes      = require('./routes/instagram');
+const schedulerRoutes      = require('./routes/scheduler');
+const trendingRoutes       = require('./routes/trending');
 
 const app = express();
 app.use(cors({
@@ -24,6 +25,7 @@ app.use('/temp', express.static(path.join(__dirname, 'temp')));
 
 app.use('/api/scrape', scrapeRoutes);
 app.use('/api/generate', generateRoutes);
+app.use('/api/generate-custom', generateCustomRoutes);
 app.use('/api/instagram', instagramRoutes);
 app.use('/api/scheduler', schedulerRoutes);
 app.use('/api/trending', trendingRoutes);

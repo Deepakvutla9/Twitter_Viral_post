@@ -5,6 +5,16 @@ const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || 'http://loca
 export const fetchNews = (topic, exclude = []) =>
   api.post('/scrape', { topic, exclude }).then((r) => r.data.article);
 
+export const generateCustomSlides = (title, body, imageFile) => {
+  const form = new FormData();
+  form.append('title', title);
+  form.append('body', body);
+  if (imageFile) form.append('image', imageFile);
+  return api.post('/generate-custom', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then((r) => r.data);
+};
+
 export const generateSlides = (article, topic) =>
   api.post('/generate', { article, topic }).then((r) => r.data);
 

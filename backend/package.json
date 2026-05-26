@@ -21,6 +21,7 @@
     "express": "^5.2.1",
     "form-data": "^4.0.5",
     "groq-sdk": "^1.1.2",
+    "multer": "^2.1.1",
     "node-cron": "^4.2.1",
     "playwright": "^1.59.1",
     "sharp": "^0.34.5",

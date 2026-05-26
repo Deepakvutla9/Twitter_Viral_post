@@ -338,7 +338,7 @@ async function generateHFImage(prompt) {
 }
 
 // ── EXPORT ────────────────────────────────────────────────────────────────────
-async function composeSlideImages(slides, ogImage = null, imagePrompt = null) {
+async function composeSlideImages(slides, ogImage = null, imagePrompt = null, customSlide1Base64 = null) {
   const timestamp = Date.now();
   const results   = [];
 
@@ -347,15 +347,15 @@ async function composeSlideImages(slides, ogImage = null, imagePrompt = null) {
   // Each falls back to the other if unavailable, then to null (pure dark bg)
   console.log('[ImageComposer] Fetching images in parallel...');
   const [articleSlide1, articleSlide2, hfImg] = await Promise.all([
-    ogImage     ? fetchImageBase64(ogImage, 'slide1') : Promise.resolve(null),
-    ogImage     ? fetchImageBase64(ogImage, 'slide2') : Promise.resolve(null),
-    imagePrompt ? generateHFImage(imagePrompt)        : Promise.resolve(null),
+    customSlide1Base64  ? Promise.resolve(customSlide1Base64)   // uploaded image takes priority
+      : ogImage         ? fetchImageBase64(ogImage, 'slide1')   : Promise.resolve(null),
+    ogImage             ? fetchImageBase64(ogImage, 'slide2')   : Promise.resolve(null),
+    imagePrompt         ? generateHFImage(imagePrompt)          : Promise.resolve(null),
   ]);
 
-  console.log(`[ImageComposer] Article photo: ${articleSlide1 ? '✓' : '✗'}  |  HF image: ${hfImg ? '✓' : '✗'}`);
+  console.log(`[ImageComposer] Slide1 photo: ${articleSlide1 ? '✓' : '✗'}  |  HF image: ${hfImg ? '✓' : '✗'}`);
 
-  // Slide 1: real article photo (vivid crop)
-  // Slide 2: HF AI image if available, else dark/desaturated version of article photo
+  // Slide 1: uploaded/article photo  |  Slide 2: HF AI image, else dark fallback
   const slideImages = [
     articleSlide1 || hfImg,
     hfImg         || articleSlide2,
