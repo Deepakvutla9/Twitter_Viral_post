@@ -134,17 +134,17 @@ function buildHookSlide(slide, imgBase64) {
        <rect x="0" y="0" width="${W}" height="${H}" fill="url(#grad1Fallback)"/>`;
 
   // Layout: work bottom-up from social bar
-  // Social bar starts at H-58=1022, teaser sits above it, headline above teaser, badge above headline
-  const SOCIAL_TOP  = H - 58;
-  const TEASER_Y    = SOCIAL_TOP - 52;     // teaser baseline
-  const HEAD_SIZE   = 84;
-  const HEAD_LH     = 92;
-  const HEAD_MAX    = 18;
-  const headLines   = wrapHighlighted(rawTitle, HEAD_MAX);
+  const SOCIAL_TOP   = H - 58;
+  const TEASER_Y     = SOCIAL_TOP - 48;    // teaser baseline
+  const HEAD_SIZE    = 84;
+  const HEAD_LH      = 92;
+  const HEAD_MAX     = 18;
+  const headLines    = wrapHighlighted(rawTitle, HEAD_MAX);
   const maxHeadLines = Math.min(headLines.length, 3);
-  const HEAD_BOTTOM  = TEASER_Y - 30;      // bottom of last headline line
-  const HEAD_Y       = HEAD_BOTTOM - (maxHeadLines - 1) * HEAD_LH; // top of first headline line
-  const BADGE_Y      = HEAD_Y - 66;        // badge sits above headline
+  const HEAD_BOTTOM  = TEASER_Y - 28;      // bottom of last headline line
+  const HEAD_Y       = HEAD_BOTTOM - (maxHeadLines - 1) * HEAD_LH;
+  // Badge must clear the headline glyphs — cap height ~= 0.72 * font size
+  const BADGE_Y      = HEAD_Y - Math.round(HEAD_SIZE * 0.72) - 56; // safe gap above glyphs
 
   // Badge pill
   const BADGE_W = badge.length * 16 + 48;
@@ -243,18 +243,30 @@ function buildContextSlide(slide, imgBase64, slideNum, totalSlides) {
 }
 
 // ── IMAGE DOWNLOAD ────────────────────────────────────────────────────────────
-async function fetchImageBase64(url) {
+async function fetchImageBase64(url, variant = 'slide1') {
   try {
     const res = await axios.get(url, {
       responseType: 'arraybuffer', timeout: 8000,
       headers: { 'User-Agent': 'Mozilla/5.0' },
     });
-    const buf = await sharp(Buffer.from(res.data))
-      .resize(1080, 1080, { fit: 'cover', position: 'top' })
-      .jpeg({ quality: 90 }).toBuffer();
+    let pipeline = sharp(Buffer.from(res.data));
+
+    if (variant === 'slide1') {
+      // Slide 1: vivid, crop from top (show faces/subjects)
+      pipeline = pipeline
+        .resize(1080, 1080, { fit: 'cover', position: 'top' });
+    } else {
+      // Slide 2: crop from centre, darker + desaturated → feels like a different photo
+      pipeline = pipeline
+        .resize(1080, 1080, { fit: 'cover', position: 'centre' })
+        .modulate({ brightness: 0.72, saturation: 0.45 })
+        .tint({ r: 10, g: 20, b: 40 }); // subtle cool blue tint for depth
+    }
+
+    const buf = await pipeline.jpeg({ quality: 90 }).toBuffer();
     return buf.toString('base64');
   } catch (e) {
-    console.log(`[ImageComposer] Thumbnail fetch failed: ${e.message}`);
+    console.log(`[ImageComposer] Thumbnail fetch failed (${variant}): ${e.message}`);
     return null;
   }
 }
@@ -319,17 +331,19 @@ async function composeSlideImages(slides, ogImage = null, imagePrompt = null) {
   // Slide 2 → HF AI-generated image (different visual, same topic)
   // Each falls back to the other if unavailable, then to null (pure dark bg)
   console.log('[ImageComposer] Fetching images in parallel...');
-  const [articleImg, hfImg] = await Promise.all([
-    ogImage     ? fetchImageBase64(ogImage)       : Promise.resolve(null),
-    imagePrompt ? generateHFImage(imagePrompt)    : Promise.resolve(null),
+  const [articleSlide1, articleSlide2, hfImg] = await Promise.all([
+    ogImage     ? fetchImageBase64(ogImage, 'slide1') : Promise.resolve(null),
+    ogImage     ? fetchImageBase64(ogImage, 'slide2') : Promise.resolve(null),
+    imagePrompt ? generateHFImage(imagePrompt)        : Promise.resolve(null),
   ]);
 
-  console.log(`[ImageComposer] Article photo: ${articleImg ? '✓' : '✗'}  |  HF image: ${hfImg ? '✓' : '✗'}`);
+  console.log(`[ImageComposer] Article photo: ${articleSlide1 ? '✓' : '✗'}  |  HF image: ${hfImg ? '✓' : '✗'}`);
 
-  // Per-slide image assignment
+  // Slide 1: real article photo (vivid crop)
+  // Slide 2: HF AI image if available, else dark/desaturated version of article photo
   const slideImages = [
-    articleImg || hfImg,   // slide 1: real photo preferred
-    hfImg      || articleImg, // slide 2: AI image preferred
+    articleSlide1 || hfImg,
+    hfImg         || articleSlide2,
   ];
 
   const total = slides.length;
