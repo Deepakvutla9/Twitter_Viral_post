@@ -70,37 +70,26 @@ function wrapHighlighted(raw, maxChars) {
   return lines;
 }
 
-// Render wrapped highlighted lines as SVG text elements
-function renderLines(lines, x, startY, lineH, fontSize, normalFill, hlFill, bold = false) {
-  return lines.map((line, i) => {
-    const y = startY + i * lineH;
-    const segs = [];
-    let cur = null;
-    for (const word of line) {
-      if (!cur || cur.hl !== word.hl) { cur = { text: word.w, hl: word.hl }; segs.push(cur); }
-      else cur.text += ' ' + word.w;
-    }
-    const tspans = segs.map(s =>
-      `<tspan fill="${s.hl ? hlFill : normalFill}" font-weight="${s.hl || bold ? '900' : '400'}">${esc(s.text)} </tspan>`
-    ).join('');
-    return `<text x="${x}" y="${y}" font-family="${s => s.hl ? FONT : FONT_B}" font-size="${fontSize}">${tspans}</text>`;
-  }).join('\n');
-}
-
-// Simpler version — whole line uses same font family
+// Render wrapped highlighted lines as SVG — uses xml:space="preserve" + spaces outside tspans
+// to prevent SVG from stripping whitespace between words
 function renderLinesSimple(lines, x, startY, lineH, fontSize, normalFill, hlFill) {
   return lines.map((line, i) => {
     const y = startY + i * lineH;
+    // Group consecutive same-hl words
     const segs = [];
     let cur = null;
     for (const word of line) {
       if (!cur || cur.hl !== word.hl) { cur = { text: word.w, hl: word.hl }; segs.push(cur); }
       else cur.text += ' ' + word.w;
     }
-    const tspans = segs.map(s =>
-      `<tspan fill="${s.hl ? hlFill : normalFill}" font-weight="${s.hl ? '900' : '700'}">${esc(s.text)} </tspan>`
-    ).join('');
-    return `<text x="${x}" y="${y}" font-family="${FONT}" font-size="${fontSize}">${tspans}</text>`;
+    // Space goes OUTSIDE tspan so SVG whitespace rules don't strip it
+    const tspans = segs.map((s, idx) => {
+      const fill = s.hl ? hlFill : normalFill;
+      const fw   = s.hl ? '900' : '700';
+      const space = idx < segs.length - 1 ? ' ' : '';
+      return `<tspan fill="${fill}" font-weight="${fw}">${esc(s.text)}</tspan>${space}`;
+    }).join('');
+    return `<text x="${x}" y="${y}" font-family="${FONT}" font-size="${fontSize}" xml:space="preserve">${tspans}</text>`;
   }).join('\n');
 }
 
@@ -144,8 +133,20 @@ function buildHookSlide(slide, imgBase64) {
     : `<rect width="${W}" height="${H}" fill="#0a0a0a"/>
        <rect x="0" y="0" width="${W}" height="${H}" fill="url(#grad1Fallback)"/>`;
 
+  // Layout: work bottom-up from social bar
+  // Social bar starts at H-58=1022, teaser sits above it, headline above teaser, badge above headline
+  const SOCIAL_TOP  = H - 58;
+  const TEASER_Y    = SOCIAL_TOP - 52;     // teaser baseline
+  const HEAD_SIZE   = 84;
+  const HEAD_LH     = 92;
+  const HEAD_MAX    = 18;
+  const headLines   = wrapHighlighted(rawTitle, HEAD_MAX);
+  const maxHeadLines = Math.min(headLines.length, 3);
+  const HEAD_BOTTOM  = TEASER_Y - 30;      // bottom of last headline line
+  const HEAD_Y       = HEAD_BOTTOM - (maxHeadLines - 1) * HEAD_LH; // top of first headline line
+  const BADGE_Y      = HEAD_Y - 66;        // badge sits above headline
+
   // Badge pill
-  const BADGE_Y = 680;
   const BADGE_W = badge.length * 16 + 48;
   const badgeSvg = `
     <rect x="${PAD}" y="${BADGE_Y}" width="${BADGE_W}" height="46" rx="23"
@@ -154,29 +155,23 @@ function buildHookSlide(slide, imgBase64) {
       font-family="${FONT}" font-size="22" font-weight="900"
       fill="${BLACK}" text-anchor="middle" letter-spacing="3">${esc(badge)}</text>`;
 
-  // Headline — large, mixed white/cyan
-  const HEAD_Y    = BADGE_Y + 80;
-  const HEAD_SIZE = 88;
-  const HEAD_LH   = 96;
-  const HEAD_MAX  = 18;
-  const headLines = wrapHighlighted(rawTitle, HEAD_MAX);
-  const maxHeadLines = Math.min(headLines.length, 3);
+  // Headline
   const headSvg = renderLinesSimple(headLines.slice(0, maxHeadLines), PAD, HEAD_Y, HEAD_LH, HEAD_SIZE, WHITE, ACCENT);
 
   // Teaser
-  const teaserY = HEAD_Y + maxHeadLines * HEAD_LH + 20;
   const teaserSvg = `
-    <text x="${PAD}" y="${teaserY}"
-      font-family="${FONT_B}" font-size="34" font-weight="700"
+    <text x="${PAD}" y="${TEASER_Y}"
+      font-family="${FONT_B}" font-size="32" font-weight="700"
       fill="rgba(255,255,255,0.80)">${esc(teaser)}</text>`;
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="grad1" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%"   stop-color="rgba(0,0,0,0)"/>
-      <stop offset="42%"  stop-color="rgba(0,0,0,0.15)"/>
-      <stop offset="65%"  stop-color="rgba(0,0,0,0.80)"/>
-      <stop offset="100%" stop-color="rgba(0,0,0,0.97)"/>
+      <stop offset="45%"  stop-color="rgba(0,0,0,0)"/>
+      <stop offset="62%"  stop-color="rgba(0,0,0,0.75)"/>
+      <stop offset="82%"  stop-color="rgba(0,0,0,0.93)"/>
+      <stop offset="100%" stop-color="rgba(0,0,0,0.98)"/>
     </linearGradient>
     <linearGradient id="grad1Fallback" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#0d0d18"/>
