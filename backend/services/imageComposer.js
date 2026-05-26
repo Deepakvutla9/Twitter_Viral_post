@@ -133,24 +133,28 @@ function buildHookSlide(slide, imgBase64) {
     : `<rect width="${W}" height="${H}" fill="#0a0a0a"/>
        <rect x="0" y="0" width="${W}" height="${H}" fill="url(#grad1Fallback)"/>`;
 
-  // Fixed layout — bottom-up, 2 headline lines max for punch
-  const HEAD_SIZE    = 92;
-  const HEAD_LH      = 102;
-  const HEAD_MAX     = 17;
-  const CAP_HEIGHT   = Math.round(HEAD_SIZE * 0.72); // ~66px — top of glyph above baseline
+  // Adaptive font size so full title always fits
+  // Short title → big font / fewer lines; long title → smaller font / more lines
+  const titleLen = rawTitle.replace(/\*\*/g, '').length;
+  const HEAD_SIZE = titleLen <= 35 ? 92 : titleLen <= 55 ? 80 : 70;
+  const HEAD_LH   = Math.round(HEAD_SIZE * 1.12);
+  const HEAD_MAX  = titleLen <= 35 ? 15 : titleLen <= 55 ? 17 : 20;
+  const MAX_LINES = titleLen <= 35 ? 2 : titleLen <= 55 ? 3 : 4;
+  const CAP_HEIGHT = Math.round(HEAD_SIZE * 0.72);
 
-  const SOCIAL_TOP   = H - 58;
-  const TEASER_Y     = SOCIAL_TOP - 46;         // teaser baseline
-  const HEAD_BOTTOM  = TEASER_Y - 32;           // last headline baseline
-  const maxHeadLines = 2;                        // always 2 lines — short & punchy
-  const HEAD_Y       = HEAD_BOTTOM - (maxHeadLines - 1) * HEAD_LH; // first headline baseline
+  const SOCIAL_TOP  = H - 58;
+  const TEASER_Y    = SOCIAL_TOP - 46;
+  const HEAD_BOTTOM = TEASER_Y - 32;
 
-  // Badge sits clearly above glyph top with 28px breathing room
-  const BADGE_BOTTOM = HEAD_Y - CAP_HEIGHT - 28;
-  const BADGE_H      = 46;
-  const BADGE_Y      = BADGE_BOTTOM - BADGE_H;
-
+  // Pre-wrap to know actual line count
   const headLines    = wrapHighlighted(rawTitle, HEAD_MAX);
+  const maxHeadLines = Math.min(headLines.length, MAX_LINES);
+  const HEAD_Y       = HEAD_BOTTOM - (maxHeadLines - 1) * HEAD_LH;
+
+  // Badge clearly above glyph top (28px breathing room)
+  const BADGE_H      = 46;
+  const BADGE_BOTTOM = HEAD_Y - CAP_HEIGHT - 28;
+  const BADGE_Y      = BADGE_BOTTOM - BADGE_H;
 
   // Badge pill
   const BADGE_W = badge.length * 16 + 48;
