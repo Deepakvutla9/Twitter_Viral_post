@@ -105,17 +105,17 @@ function renderLinesSimple(lines, x, startY, lineH, fontSize, normalFill, hlFill
 // ── SHARED ELEMENTS ───────────────────────────────────────────────────────────
 
 function logoSvg() {
-  // Top-left: glass pill badge
+  // Top-left: glass pill badge — page name
   return `
-    <rect x="${PAD}" y="44" width="280" height="52" rx="26"
+    <rect x="${PAD}" y="44" width="290" height="52" rx="26"
       fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
-    <text x="${PAD + 140}" y="79"
+    <text x="${PAD + 145}" y="79"
       font-family="${FONT}" font-size="20" font-weight="900"
-      fill="${WHITE}" text-anchor="middle" letter-spacing="2">SHADESOFIRONY</text>`;
+      fill="${WHITE}" text-anchor="middle" letter-spacing="2">SYNTHETIC MINDS</text>`;
 }
 
 function socialBar() {
-  // Bottom bar: handle left, website right
+  // Bottom bar: handle left, CTA right
   return `
     <rect x="0" y="${H - 58}" width="${W}" height="58" fill="rgba(0,0,0,0.7)"/>
     <rect x="0" y="${H - 58}" width="${W}" height="1" fill="rgba(255,255,255,0.12)"/>
@@ -124,7 +124,7 @@ function socialBar() {
       fill="rgba(255,255,255,0.55)" letter-spacing="1">@shadesofirony</text>
     <text x="${W - PAD}" y="${H - 20}"
       font-family="${FONT_B}" font-size="22" font-weight="600"
-      fill="rgba(255,255,255,0.55)" text-anchor="end" letter-spacing="1">shadesofirony</text>`;
+      fill="${ACCENT}" text-anchor="end" letter-spacing="1">Follow for more →</text>`;
 }
 
 // ── SLIDE 1: HOOK ─────────────────────────────────────────────────────────────
