@@ -57,6 +57,22 @@ const BLOCKED_DOMAINS = [
   'linkedin.com', 'youtube.com', 'youtu.be', 'github.com', 'docs.google.com',
 ];
 
+// Only allow established news/tech publications — blocks personal blogs automatically
+const TRUSTED_DOMAINS = [
+  'techcrunch.com', 'venturebeat.com', 'theverge.com', 'wired.com',
+  'arstechnica.com', 'technologyreview.com', 'bbc.com', 'bbc.co.uk',
+  'reuters.com', 'bloomberg.com', 'wsj.com', 'nytimes.com', 'ft.com',
+  'cnbc.com', 'forbes.com', 'businessinsider.com', 'fortune.com',
+  'washingtonpost.com', 'theguardian.com', 'engadget.com', 'zdnet.com',
+  'cnet.com', 'tomshardware.com', 'anandtech.com', 'semafor.com',
+  'theatlantic.com', 'axios.com', 'protocol.com', 'infoq.com',
+  'thenextweb.com', 'fastcompany.com', 'inc.com', 'entrepreneur.com',
+  'nature.com', 'science.org', 'newscientist.com', 'scientificamerican.com',
+  'apnews.com', 'politico.com', 'thehill.com', 'marketwatch.com',
+  'nvidia.com', 'openai.com', 'anthropic.com', 'deepmind.com', 'google.com',
+  'microsoft.com', 'meta.com', 'apple.com', 'amazon.com',
+];
+
 // Keywords that indicate opinion/blog posts — not real news
 const OPINION_SIGNALS = [
   'my thoughts', 'i think', 'i believe', 'opinion:', 'perspective:',
@@ -300,6 +316,8 @@ async function fetchNewsArticle(topic, exclude = []) {
       try {
         const host = new URL(item.url).hostname.replace('www.', '');
         if (BLOCKED_DOMAINS.some((d) => host.includes(d))) return false;
+        // Must be from a trusted news source — rejects personal blogs, random sites
+        if (!TRUSTED_DOMAINS.some((d) => host.includes(d))) return false;
       } catch { return false; }
       // Strict date filter — must have a date AND be from this year
       if (!item.pubDate) return false;
@@ -366,7 +384,13 @@ async function fetchTrendingArticle() {
 
   // Score each item by AI/tech relevance + HN points
   const scored = topItems
-    .filter((item) => !history.has(item.url))
+    .filter((item) => {
+      if (history.has(item.url)) return false;
+      try {
+        const host = new URL(item.url).hostname.replace('www.', '');
+        return TRUSTED_DOMAINS.some((d) => host.includes(d));
+      } catch { return false; }
+    })
     .map((item) => {
       const text = item.title.toLowerCase();
       let score = item.hnPoints;
