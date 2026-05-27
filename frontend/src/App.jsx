@@ -599,20 +599,21 @@ export default function App() {
                       queueSuccess ? (
                         <div className="posted-success">✓ ADDED TO QUEUE — will post at scheduled time</div>
                       ) : (
-                        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
                           <input
                             type="datetime-local"
                             value={scheduledAt}
-                            min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
                             onChange={(e) => setScheduledAt(e.target.value)}
                             style={{
-                              flex: 1, padding: '0.6rem 0.8rem', background: 'var(--bg3)',
-                              border: '1px solid var(--border)', borderRadius: '6px',
-                              color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '0.82rem',
+                              width: '100%', padding: '0.65rem 0.8rem',
+                              background: '#ffffff', border: '1px solid var(--border)',
+                              borderRadius: '6px', color: '#111111',
+                              fontFamily: 'var(--mono)', fontSize: '0.88rem',
+                              colorScheme: 'light',
                             }}
                           />
-                          <button className="btn btn-cyan" onClick={handleSchedulePost}>
-                            ADD TO QUEUE
+                          <button className="btn btn-cyan btn-full" onClick={handleSchedulePost}>
+                            + ADD TO QUEUE
                           </button>
                         </div>
                       )
