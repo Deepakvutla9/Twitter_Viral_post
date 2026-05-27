@@ -24,6 +24,10 @@ export const postCarousel = (imagePaths, caption, articleUrl) =>
 export const runPipeline = () =>
   api.post('/scheduler/run').then((r) => r.data);
 
+export const getQueue    = ()             => api.get('/queue').then((r) => r.data);
+export const addToQueue  = (payload)      => api.post('/queue', payload).then((r) => r.data);
+export const removeFromQueue = (id)       => api.delete(`/queue/${id}`).then((r) => r.data);
+
 export const startScheduler = (cronExpression) =>
   api.post('/scheduler/start', { cronExpression }).then((r) => r.data);
 

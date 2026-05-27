@@ -9,6 +9,9 @@ import {
   stopScheduler,
   getSchedulerStatus,
   getTrending,
+  getQueue,
+  addToQueue,
+  removeFromQueue,
 } from './api';
 import './App.css';
 
@@ -43,15 +46,26 @@ export default function App() {
   const [customImage, setCustomImage]   = useState(null);
   const [customPreview, setCustomPreview] = useState(null);
   const fileInputRef = useRef(null);
+
+  // Queue state
+  const [postQueue, setPostQueue]         = useState([]);
+  const [scheduleMode, setScheduleMode]   = useState('now'); // 'now' | 'schedule'
+  const [scheduledAt, setScheduledAt]     = useState('');
+  const [queueSuccess, setQueueSuccess]   = useState(false);
   const [schedulerStatus, setSchedulerStatus] = useState(null);
   const [cronExpression, setCronExpression]   = useState('0 9 * * *');
 
   useEffect(() => {
     fetchStatus();
     loadTrending();
-    const interval = setInterval(fetchStatus, 10000);
+    loadQueue();
+    const interval = setInterval(() => { fetchStatus(); loadQueue(); }, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  async function loadQueue() {
+    try { setPostQueue(await getQueue()); } catch {}
+  }
 
   async function loadTrending() {
     setLoadingTrend(true);
@@ -140,6 +154,24 @@ export default function App() {
 
   async function handleStopScheduler() {
     try { await stopScheduler(); fetchStatus(); } catch (e) { setError(e.message); }
+  }
+
+  async function handleSchedulePost() {
+    if (!scheduledAt) return setError('Pick a date and time to schedule');
+    setError(null);
+    try {
+      await addToQueue({ title: customTitle, imagePaths, caption, scheduledAt: new Date(scheduledAt).toISOString() });
+      setQueueSuccess(true);
+      loadQueue();
+      setTimeout(() => setQueueSuccess(false), 4000);
+    } catch (e) {
+      setError(e.response?.data?.error || e.message);
+    }
+  }
+
+  async function handleCancelQueued(id) {
+    await removeFromQueue(id);
+    loadQueue();
   }
 
   async function handleCustomGenerate() {
@@ -517,31 +549,120 @@ export default function App() {
               </div>
             )}
 
-            {/* DEPLOY */}
+            {/* DEPLOY / SCHEDULE */}
             {slides.length > 0 && (
-              <div className={`step ${posted ? 'done' : 'active'}`}>
+              <div className={`step ${posted || queueSuccess ? 'done' : 'active'}`}>
                 <div className="step-connector">
-                  <div className="step-num">{posted ? '✓' : '02'}</div>
+                  <div className="step-num">{posted || queueSuccess ? '✓' : '02'}</div>
                   <div className="step-line" style={{ minHeight: 0, flex: 0 }} />
                 </div>
                 <div className="step-body">
                   <div className="step-header">
                     <span className="step-label">DEPLOY TO INSTAGRAM</span>
-                    <span className="step-tag">{posted ? 'POSTED' : 'READY'}</span>
+                    <span className="step-tag">{posted ? 'POSTED' : queueSuccess ? 'SCHEDULED' : 'READY'}</span>
                   </div>
                   <div className="panel">
                     <div className="caption-section">
                       <span className="caption-label">CAPTION PAYLOAD</span>
-                      <textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={5} />
+                      <textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={4} />
                     </div>
-                    {posted ? (
-                      <div className="posted-success">✓ CAROUSEL DEPLOYED — POST ID: {posted}</div>
-                    ) : (
-                      <button className="btn btn-instagram btn-full" onClick={handlePost} disabled={loading.post}>
-                        {loading.post ? 'DEPLOYING...' : '▶ DEPLOY CAROUSEL TO INSTAGRAM'}
-                      </button>
+
+                    {/* Post Now / Schedule toggle */}
+                    <div style={{ display: 'flex', gap: '0.6rem', margin: '1rem 0 0.8rem' }}>
+                      {['now', 'schedule'].map(mode => (
+                        <button key={mode}
+                          onClick={() => setScheduleMode(mode)}
+                          style={{
+                            flex: 1, padding: '0.55rem', fontFamily: 'var(--mono)', fontSize: '0.75rem',
+                            fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase',
+                            border: `1px solid ${scheduleMode === mode ? 'var(--cyan)' : 'var(--border)'}`,
+                            background: scheduleMode === mode ? 'rgba(0,229,255,0.1)' : 'var(--bg3)',
+                            color: scheduleMode === mode ? 'var(--cyan)' : 'var(--text-dim)',
+                            borderRadius: '6px', cursor: 'pointer', transition: 'all 0.15s',
+                          }}>
+                          {mode === 'now' ? '▶ Post Now' : '🕐 Schedule'}
+                        </button>
+                      ))}
+                    </div>
+
+                    {scheduleMode === 'now' && (
+                      posted ? (
+                        <div className="posted-success">✓ CAROUSEL DEPLOYED — POST ID: {posted}</div>
+                      ) : (
+                        <button className="btn btn-instagram btn-full" onClick={handlePost} disabled={loading.post}>
+                          {loading.post ? 'DEPLOYING...' : '▶ DEPLOY CAROUSEL TO INSTAGRAM'}
+                        </button>
+                      )
+                    )}
+
+                    {scheduleMode === 'schedule' && (
+                      queueSuccess ? (
+                        <div className="posted-success">✓ ADDED TO QUEUE — will post at scheduled time</div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+                          <input
+                            type="datetime-local"
+                            value={scheduledAt}
+                            min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                            onChange={(e) => setScheduledAt(e.target.value)}
+                            style={{
+                              flex: 1, padding: '0.6rem 0.8rem', background: 'var(--bg3)',
+                              border: '1px solid var(--border)', borderRadius: '6px',
+                              color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: '0.82rem',
+                            }}
+                          />
+                          <button className="btn btn-cyan" onClick={handleSchedulePost}>
+                            ADD TO QUEUE
+                          </button>
+                        </div>
+                      )
                     )}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* QUEUE PANEL */}
+            {postQueue.length > 0 && (
+              <div className="panel" style={{ marginTop: '1.5rem' }}>
+                <div style={{ fontFamily: 'var(--mono)', fontSize: '0.7rem', color: 'var(--cyan)', letterSpacing: '2px', marginBottom: '0.8rem' }}>
+                  📅 SCHEDULED QUEUE — {postQueue.filter(q => q.status === 'pending').length} PENDING
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                  {postQueue.map(item => (
+                    <div key={item.id} style={{
+                      display: 'flex', alignItems: 'center', gap: '0.8rem',
+                      padding: '0.6rem 0.8rem', background: 'var(--bg3)',
+                      border: `1px solid ${item.status === 'posted' ? 'var(--green)' : item.status === 'failed' ? '#ff4444' : 'var(--border)'}`,
+                      borderRadius: '6px',
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontFamily: 'var(--mono)', fontSize: '0.78rem', color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {item.title || 'Custom Post'}
+                        </div>
+                        <div style={{ fontFamily: 'var(--mono)', fontSize: '0.68rem', color: 'var(--text-dim)', marginTop: '0.2rem' }}>
+                          🕐 {new Date(item.scheduledAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <span style={{
+                        fontFamily: 'var(--mono)', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '1px',
+                        padding: '0.2rem 0.5rem', borderRadius: '4px',
+                        background: item.status === 'posted' ? 'rgba(0,255,0,0.1)' : item.status === 'failed' ? 'rgba(255,0,0,0.1)' : 'rgba(0,229,255,0.1)',
+                        color: item.status === 'posted' ? 'var(--green)' : item.status === 'failed' ? '#ff4444' : 'var(--cyan)',
+                      }}>
+                        {item.status.toUpperCase()}
+                      </span>
+                      {item.status === 'pending' && (
+                        <button onClick={() => handleCancelQueued(item.id)} style={{
+                          background: 'none', border: '1px solid var(--border)', borderRadius: '4px',
+                          color: 'var(--text-mute)', fontFamily: 'var(--mono)', fontSize: '0.7rem',
+                          padding: '0.2rem 0.5rem', cursor: 'pointer',
+                        }}>
+                          CANCEL
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
