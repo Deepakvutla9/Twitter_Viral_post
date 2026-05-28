@@ -1,6 +1,6 @@
 # Synthetic Minds — Viral Carousel Generator
 
-Automated Instagram carousel generator for the **Synthetic Minds** page (`@shadesofirony`). Scrapes trending tech news, generates 2-slide visual carousels using AI, and posts them automatically on a schedule.
+Automated Instagram carousel generator. Scrapes trending tech news, generates 2-slide visual carousels using AI, and posts them automatically on a schedule. Fully customizable — swap in your own branding, colors, and Instagram handle in minutes.
 
 ---
 
@@ -78,7 +78,7 @@ Twitter_Viral_post/
 ### 1. Clone
 
 ```bash
-git clone https://github.com/Deepakvutla9/Twitter_Viral_post.git
+git clone https://github.com/your-username/your-repo.git
 cd Twitter_Viral_post
 ```
 
@@ -138,8 +138,8 @@ cd frontend && npm run dev        # http://localhost:5173
 
 | Element | Value |
 |---|---|
-| Page name | Synthetic Minds |
-| Handle | @shadesofirony |
-| Accent color | `#00e5ff` (cyan) |
+| Page name | Your page name (change in `logoSvg()`) |
+| Handle | Your Instagram handle (change in `socialBar()`) |
+| Accent color | `#00e5ff` cyan — change `ACCENT` constant to your brand color |
 | Slide size | 1080 × 1080 px |
 | Font | Arial Black / Arial |
