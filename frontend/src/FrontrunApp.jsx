@@ -91,12 +91,6 @@ export default function FrontrunApp() {
     return () => clearTimeout(timeout);
   }, []);
 
-  function trackPointer(event) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    event.currentTarget.style.setProperty('--mx', `${((event.clientX - rect.left) / rect.width) * 100}%`);
-    event.currentTarget.style.setProperty('--my', `${((event.clientY - rect.top) / rect.height) * 100}%`);
-  }
-
   async function refreshSystems() {
     try {
       const [stories, queue, status] = await Promise.all([
@@ -309,7 +303,7 @@ export default function FrontrunApp() {
     'Pull a live signal, choose the angle, compose the carousel, clear the risk checks, and launch from one focused surface.';
 
   return (
-    <main className={`fr-app ${booting ? 'is-booting' : 'is-live'}`} onPointerMove={trackPointer}>
+    <main className={`fr-app ${booting ? 'is-booting' : 'is-live'}`}>
       <div className="boot-sequence" aria-hidden={!booting}>
         <div className="boot-frame">
           <span className="boot-corner boot-corner-a" />
@@ -323,6 +317,7 @@ export default function FrontrunApp() {
       </div>
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
+      <div className="cursor-glow" aria-hidden="true" />
       <div className="mirror-hall" aria-hidden="true">
         <span className="mirror-ceiling" />
         <span className="mirror-floor" />
