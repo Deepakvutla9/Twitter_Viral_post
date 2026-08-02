@@ -304,17 +304,19 @@ export default function FrontrunApp() {
 
   return (
     <main className={`fr-app ${booting ? 'is-booting' : 'is-live'}`}>
-      <div className="boot-sequence" aria-hidden={!booting}>
-        <div className="boot-frame">
-          <span className="boot-corner boot-corner-a" />
-          <span className="boot-corner boot-corner-b" />
-          <span className="boot-corner boot-corner-c" />
-          <span className="boot-corner boot-corner-d" />
-          <div className="boot-mark">F</div>
-          <strong>Frontrun</strong>
-          <small>Signal studio coming online</small>
+      {booting && (
+        <div className="boot-sequence" aria-hidden={!booting}>
+          <div className="boot-frame">
+            <span className="boot-corner boot-corner-a" />
+            <span className="boot-corner boot-corner-b" />
+            <span className="boot-corner boot-corner-c" />
+            <span className="boot-corner boot-corner-d" />
+            <div className="boot-mark">F</div>
+            <strong>Frontrun</strong>
+            <small>Signal studio coming online</small>
+          </div>
         </div>
-      </div>
+      )}
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
       <div className="cursor-glow" aria-hidden="true" />
@@ -448,11 +450,6 @@ export default function FrontrunApp() {
           </div>
 
           <div className="artifact-preview" aria-label="Carousel preview">
-            <div className="artifact-orbit" aria-hidden="true">
-              <span>Trend velocity</span>
-              <span>Hook clarity</span>
-              <span>Launch window</span>
-            </div>
             {(loading.brief || loading.custom) && (
               <div className="build-overlay">
                 <span />
@@ -464,17 +461,28 @@ export default function FrontrunApp() {
                 <span key={index} style={{ '--delay': `${index * 0.17}s`, '--left': `${8 + (index * 23) % 86}%` }} />
               ))}
             </div>
-            <div className="slide-stack">
-              <div className="preview-slide primary-slide">
-                {imageUrls[0] ? <img src={`${IMG_BASE}${imageUrls[0]}`} alt="Hook slide" /> : null}
-                <span>{slides[0]?.badge || 'Signal'}</span>
-                <strong>{slides[0]?.headline || displayTitle}</strong>
+
+            {slides.length ? (
+              <div className="slide-stack">
+                <div className="preview-slide primary-slide">
+                  {imageUrls[0] ? <img src={`${IMG_BASE}${imageUrls[0]}`} alt="Hook slide" /> : null}
+                  <span>{slides[0]?.badge || 'Signal'}</span>
+                  <strong>{slides[0]?.headline || displayTitle}</strong>
+                </div>
+                <div className="preview-slide detail-slide">
+                  {imageUrls[1] ? <img src={`${IMG_BASE}${imageUrls[1]}`} alt="Detail slide" /> : null}
+                  <p>{slides[1]?.body || ''}</p>
+                </div>
               </div>
-              <div className="preview-slide detail-slide">
-                {imageUrls[1] ? <img src={`${IMG_BASE}${imageUrls[1]}`} alt="Detail slide" /> : null}
-                <p>{slides[1]?.body || 'The draft forms here after Frontrun builds the brief.'}</p>
+            ) : (
+              <div className="preview-empty">
+                <span className="preview-empty-badge">{shortText(displayTitle, 58)}</span>
+                <p>
+                  Your carousel preview appears here after you press <strong>Build This</strong>.
+                  The finished slides open in <strong>The Table</strong> below.
+                </p>
               </div>
-            </div>
+            )}
           </div>
         </section>
 

@@ -92,6 +92,11 @@ button {
   animation: bootExit 1.25s cubic-bezier(.2,.75,.2,1) forwards;
 }
 
+/* Safety net: once the app is live, the boot curtain must never linger. */
+.fr-app.is-live .boot-sequence {
+  display: none !important;
+}
+
 .boot-frame {
   position: relative;
   width: min(520px, calc(100vw - 42px));
@@ -912,50 +917,39 @@ button {
   opacity: 0.55;
 }
 
-.artifact-orbit {
-  position: absolute;
-  inset: 24px;
-  z-index: 4;
-  pointer-events: none;
-  animation: orbitFloat 6s ease-in-out infinite;
+.preview-empty {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 16px;
+  justify-items: center;
+  max-width: 300px;
+  padding: 0 24px;
+  text-align: center;
 }
 
-.artifact-orbit span {
-  position: absolute;
-  padding: 7px 10px;
-  border: 1px solid rgba(255,255,255,0.16);
+.preview-empty-badge {
+  padding: 8px 14px;
+  border: 1px solid var(--hairline);
   border-radius: 999px;
-  background: rgba(5,5,5,0.62);
-  color: rgba(247,244,234,0.74);
-  font-size: 11px;
-  font-weight: 850;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 12px 28px rgba(0,0,0,0.32);
+  background: rgba(5, 5, 5, 0.55);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(10px);
 }
 
-.artifact-orbit span:nth-child(1) {
-  top: 5%;
-  left: 3%;
+.preview-empty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
 }
 
-.artifact-orbit span:nth-child(2) {
-  top: 35%;
-  right: 0;
-}
-
-.artifact-orbit span:nth-child(3) {
-  left: 11%;
-  bottom: 7%;
-}
-
-@keyframes glassOrbit {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes orbitFloat {
-  50% { transform: translateY(-9px); }
+.preview-empty strong {
+  color: var(--ink);
+  font-weight: 800;
 }
 
 .build-overlay {
