@@ -434,21 +434,6 @@ export default function FrontrunApp() {
             <h1>{displayTitle}</h1>
             <p>{shortText(displayCopy, 250)}</p>
 
-            <div className="angle-stack" aria-label="Angle Engine">
-              <label className="angle-choice">
-                <input type="radio" name="angle" defaultChecked />
-                <span>Speed is the new moat</span>
-              </label>
-              <label className="angle-choice">
-                <input type="radio" name="angle" />
-                <span>What this means for small teams</span>
-              </label>
-              <label className="angle-choice">
-                <input type="radio" name="angle" />
-                <span>Make it sharper for founders</span>
-              </label>
-            </div>
-
             <div className="brief-actions">
               <button type="button" className="primary-action" onClick={buildBrief} disabled={loading.brief}>
                 {loading.brief ? 'Building' : 'Build This'}
@@ -572,7 +557,7 @@ export default function FrontrunApp() {
         <div className="compose-panel">
           <div className="surface-head">
             <div>
-              <span className="section-kicker">Angle Engine</span>
+              <span className="section-kicker">Compose</span>
               <h2>Manual brief</h2>
             </div>
           </div>

@@ -855,38 +855,6 @@ button {
   line-height: 1.6;
 }
 
-.angle-stack {
-  display: grid;
-  gap: 8px;
-  max-width: 560px;
-  margin-top: 26px;
-}
-
-.angle-choice {
-  display: grid;
-  grid-template-columns: 18px 1fr;
-  gap: 10px;
-  align-items: center;
-  padding: 12px;
-  border: 1px solid var(--hairline);
-  border-radius: 10px;
-  background: rgba(255,255,255,0.065);
-  color: var(--ink);
-  font-size: 14px;
-  font-weight: 750;
-  transition: transform 170ms ease, border-color 170ms ease, background 170ms ease;
-}
-
-.angle-choice:hover {
-  transform: translateX(4px);
-  border-color: var(--ink);
-  background: rgba(142,232,255,0.1);
-}
-
-.angle-choice input {
-  accent-color: var(--ink);
-}
-
 .brief-actions {
   display: flex;
   flex-wrap: wrap;
