@@ -65,17 +65,17 @@ export default function App() {
   }, []);
 
   async function loadQueue() {
-    try { setPostQueue(await getQueue()); } catch {}
+    try { setPostQueue(await getQueue()); } catch { /* ignore background queue refresh failures */ }
   }
 
   async function loadTrending() {
     setLoadingTrend(true);
-    try { setTrending(await getTrending()); } catch {}
+    try { setTrending(await getTrending()); } catch { /* ignore background trend refresh failures */ }
     finally { setLoadingTrend(false); }
   }
 
   async function fetchStatus() {
-    try { setSchedulerStatus(await getSchedulerStatus()); } catch {}
+    try { setSchedulerStatus(await getSchedulerStatus()); } catch { /* ignore background scheduler refresh failures */ }
   }
 
   function setLoad(key, val) {
