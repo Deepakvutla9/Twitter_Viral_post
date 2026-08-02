@@ -1,0 +1,15 @@
+[
+  {
+    "title": "International Students Hit Hard: Australia Suddenly Halts New Admissions",
+    "imagePaths": [
+      "C:\\coding projects\\Twitter_Viral_post\\backend\\temp\\slide_1779859471074_0.jpg",
+      "C:\\coding projects\\Twitter_Viral_post\\backend\\temp\\slide_1779859471074_1.jpg"
+    ],
+    "caption": "Australia's international student market is in chaos. What's next for students? \n   #AustraliaEducation #InternationalStudents #ESOSAct #VocationalEducation #StudentVisa",
+    "scheduledAt": "2026-05-27T13:00:00.000Z",
+    "id": "1779859519837",
+    "createdAt": "2026-05-27T05:25:19.837Z",
+    "status": "failed",
+    "error": "Request failed with status code 400"
+  }
+]

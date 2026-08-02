@@ -24,10 +24,12 @@ async function runPipeline() {
   const article = await fetchTrendingArticle();
   console.log(`[Pipeline] Trending: "${article.title}" (${article.points} pts)`);
 
-  const { slides, caption } = await generateCarouselSlides(article, article.title);
+  const { slides, caption, imagePrompt } = await generateCarouselSlides(article, article.title);
   console.log(`[Pipeline] Generated ${slides.length} slides`);
 
-  const images = await composeSlideImages(slides, article.ogImage || null);
+  // Pass imagePrompt so slide 2 gets an AI background (HF → Pollinations),
+  // falling back to the darkened article photo — matches the generate route.
+  const images = await composeSlideImages(slides, article.ogImage || null, imagePrompt || null);
   const imagePaths = images.map((i) => i.filepath);
 
   const postId = await postCarousel(imagePaths, caption);

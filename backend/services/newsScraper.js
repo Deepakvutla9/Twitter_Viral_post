@@ -87,7 +87,7 @@ const RSS_FEEDS = [
   { name: 'VentureBeat AI',    url: 'https://venturebeat.com/category/ai/feed/' },
   { name: 'Ars Technica',      url: 'https://feeds.arstechnica.com/arstechnica/technology-lab' },
   { name: 'The Verge AI',      url: 'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml' },
-  { name: 'Wired AI',          url: 'https://www.wired.com/feed/category/artificial-intelligence/latest/rss' },
+  { name: 'Wired AI',          url: 'https://www.wired.com/feed/tag/ai/latest/rss' },
   { name: 'MIT Tech Review',   url: 'https://www.technologyreview.com/feed/' },
   { name: 'TechCrunch',        url: 'https://techcrunch.com/feed/' },
   { name: 'BBC Tech',          url: 'https://feeds.bbci.co.uk/news/technology/rss.xml' },
@@ -280,11 +280,12 @@ async function scrapeArticle(url) {
 async function fetchNewsArticle(topic, exclude = []) {
   console.log(`[News] Fetching viral news — topic: "${topic}"`);
 
-  // Topic-specific tag feeds (TechCrunch + VentureBeat support tag RSS)
+  // Topic-specific tag feeds (TechCrunch supports tag RSS).
+  // VentureBeat retired its /tag/{slug}/feed/ endpoints (they 404); its AI
+  // coverage still comes through the category feed in the general pool above.
   const slug = topic.toLowerCase().trim().replace(/\s+/g, '-');
   const topicFeeds = [
     { name: `TechCrunch:${topic}`,  url: `https://techcrunch.com/tag/${slug}/feed/` },
-    { name: `VentureBeat:${topic}`, url: `https://venturebeat.com/tag/${slug}/feed/` },
   ];
 
   // HN queries for this topic

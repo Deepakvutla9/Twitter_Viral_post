@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Viral Post Studio UX Redesign</title>
+  <style>
+    :root {
+      --ink: #16171d;
+      --muted: #667085;
+      --line: #d9dee8;
+      --soft: #f4f6fa;
+      --panel: #ffffff;
+      --cobalt: #3157d5;
+      --mint: #18a874;
+      --amber: #bd7a12;
+      --rose: #d94f5c;
+      --shadow: 0 20px 70px rgba(18, 24, 40, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #eef1f6;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.45;
+    }
+
+    .page { max-width: 1440px; margin: 0 auto; padding: 32px; }
+
+    .brief {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 24px;
+      margin-bottom: 28px;
+    }
+
+    .card, .screen {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+    }
+
+    .card { padding: 28px; }
+
+    .eyebrow {
+      color: var(--cobalt);
+      font-size: 12px;
+      font-weight: 850;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 760px; margin-bottom: 14px; font-size: 42px; line-height: 1.05; letter-spacing: 0; }
+    h2 { margin-bottom: 16px; font-size: 22px; letter-spacing: 0; }
+    h3 { margin-bottom: 7px; font-size: 14px; letter-spacing: 0; }
+    p { color: var(--muted); }
+
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+    .pill {
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--soft);
+      color: #344054;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .stack { display: grid; gap: 12px; }
+
+    .decision {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fbfcff;
+    }
+
+    .num {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: #e8edff;
+      color: var(--cobalt);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .screen { overflow: hidden; margin-bottom: 28px; }
+
+    .screen-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 18px;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcff;
+    }
+
+    .screen-head p { margin: 3px 0 0; font-size: 13px; }
+
+    .screen-body {
+      display: grid;
+      grid-template-columns: 240px 1fr 340px;
+      min-height: 720px;
+      background: #f7f8fb;
+    }
+
+    .nav {
+      padding: 18px;
+      border-right: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .brand { margin-bottom: 22px; font-size: 18px; font-weight: 900; letter-spacing: 0; }
+
+    .nav-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 12px;
+      margin-bottom: 6px;
+      border-radius: 8px;
+      color: #475467;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .nav-item.active { background: #edf1ff; color: var(--cobalt); }
+
+    .main { padding: 22px; display: grid; grid-template-rows: auto auto 1fr; gap: 18px; }
+
+    .right {
+      padding: 22px;
+      border-left: 1px solid var(--line);
+      background: #ffffff;
+    }
+
+    .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+
+    .search {
+      flex: 1;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .button {
+      padding: 11px 14px;
+      border: 1px solid var(--cobalt);
+      border-radius: 8px;
+      background: var(--cobalt);
+      color: white;
+      font-size: 13px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+
+    .button.secondary { background: #ffffff; color: var(--cobalt); }
+
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+
+    .metric, .module, .story, .post-card {
+      background: #ffffff;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+
+    .metric { padding: 14px; min-height: 92px; }
+
+    .metric span, .small-label {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .metric strong { display: block; margin-top: 12px; font-size: 28px; letter-spacing: 0; }
+
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 0.72fr); gap: 18px; }
+    .module { padding: 16px; }
+    .story { padding: 14px; margin-top: 12px; }
+
+    .story-top { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+    .source { color: var(--muted); font-size: 12px; font-weight: 850; }
+    .score { padding: 4px 8px; border-radius: 999px; background: #e8f7f0; color: var(--mint); font-size: 12px; font-weight: 900; }
+    .story-title { margin-bottom: 8px; font-size: 16px; font-weight: 850; letter-spacing: 0; }
+    .story p { margin-bottom: 12px; font-size: 13px; }
+
+    .post-card {
+      overflow: hidden;
+      aspect-ratio: 1;
+      background:
+        linear-gradient(180deg, rgba(0,0,0,0.02), rgba(0,0,0,0.72)),
+        linear-gradient(135deg, #c8d6ff, #272838 72%);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 22px;
+    }
+
+    .post-card .badge {
+      width: fit-content;
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #111827;
+      font-size: 11px;
+      font-weight: 900;
+      margin-bottom: 12px;
+    }
+
+    .post-card strong { font-size: 30px; line-height: 1.05; letter-spacing: 0; }
+
+    .readiness {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 14px;
+      align-items: center;
+      padding: 16px;
+      border: 1px solid #cfe9dd;
+      border-radius: 10px;
+      background: #f0fbf6;
+      margin-bottom: 16px;
+    }
+
+    .ring {
+      width: 74px;
+      height: 74px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: conic-gradient(var(--mint) 0 91%, #d6efe3 91% 100%);
+      color: #0f5132;
+      font-size: 22px;
+      font-weight: 900;
+    }
+
+    .checklist { display: grid; gap: 9px; }
+
+    .check {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    .ok { color: var(--mint); font-weight: 900; }
+    .warn { color: var(--amber); font-weight: 900; }
+
+    .caption-box {
+      margin-top: 14px;
+      padding: 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #fbfcff;
+      color: #344054;
+      font-size: 13px;
+    }
+
+    .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-top: 12px; }
+    .day { min-height: 78px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: #ffffff; font-size: 12px; color: var(--muted); }
+    .dot { width: 100%; height: 8px; border-radius: 999px; background: var(--cobalt); margin-top: 12px; }
+    .dot.rose { background: var(--rose); }
+    .dot.mint { background: var(--mint); }
+
+    .variant-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 18px; }
+    .variant { padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+    .variant strong { display: block; margin-bottom: 8px; font-size: 16px; }
+    .variant p { margin-bottom: 0; font-size: 13px; }
+
+    @media (max-width: 1050px) {
+      .brief, .screen-body, .workspace, .variant-grid { grid-template-columns: 1fr; }
+      .right { border-left: none; border-top: 1px solid var(--line); }
+      .metric-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 640px) {
+      .page { padding: 14px; }
+      h1 { font-size: 30px; }
+      .screen-head, .toolbar { align-items: stretch; flex-direction: column; }
+      .metric-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="brief">
+      <div class="card">
+        <div class="eyebrow">UX Redesign Direction</div>
+        <h1>Turn the bot into a Viral Post Studio, not just a generator.</h1>
+        <p>
+          The strongest product direction is an operator workflow: discover a story, decide if it is worth posting,
+          generate the creative, review risk, then schedule or publish. The UI should make every step feel controlled,
+          fast, and trustworthy.
+        </p>
+        <div class="pill-row">
+          <span class="pill">Professional name: Viral Post Studio</span>
+          <span class="pill">Primary screen: Review Queue</span>
+          <span class="pill">Key metric: Publish Readiness</span>
+          <span class="pill">Tone: editorial operations</span>
+        </div>
+      </div>
+
+      <aside class="card">
+        <h2>Design Principles</h2>
+        <div class="stack">
+          <div class="decision">
+            <div class="num">1</div>
+            <div>
+              <h3>Make the next action obvious</h3>
+              <p>Separate Discover, Generate, Review, and Publish so users always know what to do next.</p>
+            </div>
+          </div>
+          <div class="decision">
+            <div class="num">2</div>
+            <div>
+              <h3>Show confidence before posting</h3>
+              <p>Put quality, factual risk, duplicate risk, and hashtag checks beside the preview.</p>
+            </div>
+          </div>
+          <div class="decision">
+            <div class="num">3</div>
+            <div>
+              <h3>Design for repeated daily use</h3>
+              <p>Cleaner spacing, fewer neon effects, durable typography, and dense but readable controls.</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="screen">
+      <div class="screen-head">
+        <div>
+          <h2>Concept A: Content Command Center</h2>
+          <p>Recommended for product-market fit: a daily workspace for creators, agencies, and social operators.</p>
+        </div>
+        <button class="button">Generate New Post</button>
+      </div>
+
+      <div class="screen-body">
+        <nav class="nav">
+          <div class="brand">Viral Post Studio</div>
+          <div class="nav-item active">Review Queue <span>7</span></div>
+          <div class="nav-item">Trend Scanner <span>24</span></div>
+          <div class="nav-item">Creative Studio</div>
+          <div class="nav-item">Publishing Calendar</div>
+          <div class="nav-item">Brand Rules</div>
+          <div class="nav-item">Post History</div>
+        </nav>
+
+        <section class="main">
+          <div class="toolbar">
+            <div class="search">Search topic, source, keyword, or URL</div>
+            <button class="button secondary">Scan Trends</button>
+            <button class="button">Create Draft</button>
+          </div>
+
+          <div class="metric-grid">
+            <div class="metric"><span>Readiness</span><strong>91</strong></div>
+            <div class="metric"><span>Queued Posts</span><strong>12</strong></div>
+            <div class="metric"><span>Duplicate Risk</span><strong>Low</strong></div>
+            <div class="metric"><span>Next Slot</span><strong>6 PM</strong></div>
+          </div>
+
+          <div class="workspace">
+            <div class="module">
+              <span class="small-label">Trend Candidates</span>
+              <article class="story">
+                <div class="story-top">
+                  <span class="source">The Verge - 18 min ago</span>
+                  <span class="score">92 fit</span>
+                </div>
+                <div class="story-title">OpenAI releases a faster model for creative workflows</div>
+                <p>High novelty, recognizable brand, and clear audience angle. Good candidate for a short carousel.</p>
+                <button class="button secondary">Use This Story</button>
+              </article>
+              <article class="story">
+                <div class="story-top">
+                  <span class="source">Hacker News - 42 min ago</span>
+                  <span class="score">84 fit</span>
+                </div>
+                <div class="story-title">New image model changes how small teams create campaigns</div>
+                <p>Strong creator relevance but needs fact checking before auto-publishing.</p>
+                <button class="button secondary">Use This Story</button>
+              </article>
+              <article class="story">
+                <div class="story-top">
+                  <span class="source">Product Hunt - 1 hr ago</span>
+                  <span class="score">78 fit</span>
+                </div>
+                <div class="story-title">AI scheduling tools are shifting from assistants to operators</div>
+                <p>Useful category story. Needs a stronger hook before it becomes viral content.</p>
+                <button class="button secondary">Use This Story</button>
+              </article>
+            </div>
+
+            <div class="module">
+              <span class="small-label">Creative Preview</span>
+              <div class="post-card">
+                <div class="badge">AI UPDATE</div>
+                <strong>AI teams are shipping campaigns in hours, not weeks</strong>
+              </div>
+              <div class="caption-box">
+                The creator workflow is changing quickly. Teams that can test faster will learn faster.
+                <br><br>#AI #Creators #Marketing #Startups #Automation
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="right">
+          <div class="readiness">
+            <div class="ring">91</div>
+            <div>
+              <h3>Publish Ready</h3>
+              <p>Strong hook, clean caption, one highlight, low duplicate risk.</p>
+            </div>
+          </div>
+          <div class="checklist">
+            <div class="check"><span>Fact grounding</span><span class="ok">Pass</span></div>
+            <div class="check"><span>Duplicate angle</span><span class="ok">Low</span></div>
+            <div class="check"><span>Caption hashtags</span><span class="ok">5 of 5</span></div>
+            <div class="check"><span>Image safety</span><span class="warn">Review</span></div>
+            <div class="check"><span>Posting window</span><span class="ok">6 PM</span></div>
+          </div>
+          <div class="caption-box">
+            <strong>Recommended action</strong>
+            <p>Approve the copy, regenerate slide 2 background, then schedule for the next high-engagement slot.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="screen">
+      <div class="screen-head">
+        <div>
+          <h2>Concept B: Publishing Calendar</h2>
+          <p>Best if the product becomes a scheduler and content operating system.</p>
+        </div>
+        <button class="button">Add Queue Item</button>
+      </div>
+      <div style="padding: 22px; background: #f7f8fb;">
+        <div class="metric-grid">
+          <div class="metric"><span>This Week</span><strong>21</strong></div>
+          <div class="metric"><span>Approved</span><strong>15</strong></div>
+          <div class="metric"><span>Needs Review</span><strong>4</strong></div>
+          <div class="metric"><span>Failed Posts</span><strong>0</strong></div>
+        </div>
+        <div class="calendar">
+          <div class="day">Mon<div class="dot"></div><div class="dot mint"></div></div>
+          <div class="day">Tue<div class="dot rose"></div></div>
+          <div class="day">Wed<div class="dot"></div><div class="dot"></div></div>
+          <div class="day">Thu<div class="dot mint"></div></div>
+          <div class="day">Fri<div class="dot"></div><div class="dot rose"></div></div>
+          <div class="day">Sat<div class="dot mint"></div></div>
+          <div class="day">Sun<div class="dot"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" style="padding: 24px;">
+      <h2>Three Build Directions</h2>
+      <div class="variant-grid">
+        <div class="variant">
+          <strong>1. Review Queue First</strong>
+          <p>Recommended. Makes the app feel professional immediately: scan stories, rank candidates, preview posts, approve or reject.</p>
+        </div>
+        <div class="variant">
+          <strong>2. Creative Studio First</strong>
+          <p>Best for manual creators. Focus on custom post creation, carousel editing, caption refinement, and image regeneration.</p>
+        </div>
+        <div class="variant">
+          <strong>3. Autopilot First</strong>
+          <p>Best for automation buyers. Focus on rules, schedule, brand voice, safety checks, and weekly performance reporting.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,4 +1,5 @@
 const Groq = require('groq-sdk');
+const { normalizeAndEvaluateCarousel } = require('./contentQuality');
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -24,6 +25,9 @@ RULES:
 - Specific beats vague
 - Body must be 80-100 words
 - Only ONE highlighted phrase in body
+- hashtags: EXACTLY 5. Each MUST be a SINGLE word with NO spaces — merge multi-word
+  phrases into one CamelCase token (e.g. "student visa" → #StudentVisa, "future of
+  work" → #FutureOfWork, "artificial intelligence" → #ArtificialIntelligence).
 
 Return ONLY valid JSON:
 {
@@ -35,11 +39,12 @@ Return ONLY valid JSON:
     },
     {
       "type": "detail",
-      "body": "4-5 sentences with **one key phrase highlighted**. End with a question."
+      "body": "5-6 factual sentences with **one key phrase highlighted**. End with a strong concluding statement."
     }
   ],
   "imagePrompt": "Cinematic photorealistic scene for this article. NO text, NO logos, NO UI elements. Dramatic lighting, 4k. Max 35 words.",
-  "caption": "1-2 hook sentences. Provocative question. New line, EXACTLY 5 relevant hashtags."
+  "caption": "1-2 hook sentences ending with a provocative question. NO hashtags here.",
+  "hashtags": ["#StudentVisa", "#FutureOfWork", "#ArtificialIntelligence", "#TechNews", "#AI"]
 }`;
 
   const completion = await groq.chat.completions.create({
@@ -77,19 +82,7 @@ Return ONLY valid JSON:
     parsed = JSON.parse(text);
   }
 
-  // Hard-enforce exactly 2 slides
-  const allSlides = parsed.slides || [];
-  const hook   = allSlides.find(s => s.type === 'hook')   || allSlides[0];
-  const detail = allSlides.find(s => s.type === 'detail') || allSlides[1];
-
-  if (hook)   hook.type   = 'hook';
-  if (detail) detail.type = 'detail';
-
-  // Always use the original article title as headline on slide 1
-  if (hook) hook.headline = article.title;
-
-  parsed.slides = [hook, detail].filter(Boolean).slice(0, 2);
-  return parsed;
+  return normalizeAndEvaluateCarousel(parsed, article);
 }
 
 module.exports = { generateCarouselSlides };

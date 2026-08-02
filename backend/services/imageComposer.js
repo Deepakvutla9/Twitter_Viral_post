@@ -286,55 +286,81 @@ async function fetchImageBase64(url, variant = 'slide1') {
   }
 }
 
-// ── HF IMAGE GENERATION ───────────────────────────────────────────────────────
-const HF_MODELS = [
-  'black-forest-labs/FLUX.1-schnell',
-  'stabilityai/stable-diffusion-xl-base-1.0',
-  'runwayml/stable-diffusion-v1-5',
-];
+// ── AI BACKGROUND GENERATION ──────────────────────────────────────────────────
+// Slide 2 gets an AI-generated abstract background. Two sources, tried in order:
+//   1. Hugging Face Inference Providers (FLUX.1-schnell via provider "auto").
+//      Needs an HF token with the "Inference Providers" permission enabled.
+//   2. Pollinations.ai — free, keyless FLUX endpoint. Always-on fallback so a
+//      background renders even without a working HF token.
+// NOTE: the legacy api-inference.huggingface.co host was retired by HF in 2025;
+// that is why the old direct-POST approach started failing with ENOTFOUND.
+const HF_MODELS = ['black-forest-labs/FLUX.1-schnell'];
 
-async function generateHFImage(prompt) {
+async function generateFromHF(prompt) {
   const token = process.env.HF_API_KEY;
   if (!token) return null;
 
+  let InferenceClient;
+  try {
+    ({ InferenceClient } = await import('@huggingface/inference'));
+  } catch (e) {
+    console.log(`[HF] client unavailable: ${e.message}`);
+    return null;
+  }
+
+  const hf = new InferenceClient(token);
   for (const model of HF_MODELS) {
     try {
-      console.log(`[HF] Trying ${model}`);
-      const res = await axios.post(
-        `https://api-inference.huggingface.co/models/${model}`,
-        { inputs: prompt, parameters: { width: 1024, height: 1024 } },
-        {
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          responseType: 'arraybuffer', timeout: 60000,
-        }
-      );
-      if (res.data?.byteLength > 5000) {
-        const buf = await sharp(Buffer.from(res.data))
+      console.log(`[HF] Trying ${model} (provider auto)`);
+      const blob = await hf.textToImage({
+        model,
+        inputs: prompt,
+        parameters: { width: 1024, height: 1024 },
+        provider: 'auto',
+      });
+      const raw = Buffer.from(await blob.arrayBuffer());
+      if (raw.byteLength > 5000) {
+        const buf = await sharp(raw)
           .resize(1080, 1080, { fit: 'cover', position: 'centre' })
           .jpeg({ quality: 90 }).toBuffer();
-        console.log(`[HF] ✓ ${model} (${Math.round(res.data.byteLength / 1024)}KB)`);
+        console.log(`[HF] ✓ ${model} (${Math.round(raw.byteLength / 1024)}KB)`);
         return buf.toString('base64');
       }
     } catch (e) {
-      const msg = e.response?.data ? Buffer.from(e.response.data).toString('utf8').slice(0, 100) : e.message;
-      console.log(`[HF] ${model} failed: ${msg}`);
-      if (e.response?.status === 503) {
-        await new Promise(r => setTimeout(r, 10000));
-        try {
-          const retry = await axios.post(
-            `https://api-inference.huggingface.co/models/${model}`,
-            { inputs: prompt, parameters: { width: 1024, height: 1024 } },
-            { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, responseType: 'arraybuffer', timeout: 60000 }
-          );
-          if (retry.data?.byteLength > 5000) {
-            const buf = await sharp(Buffer.from(retry.data)).resize(1080, 1080, { fit: 'cover', position: 'centre' }).jpeg({ quality: 90 }).toBuffer();
-            return buf.toString('base64');
-          }
-        } catch {}
-      }
+      console.log(`[HF] ${model} failed: ${e.message}`);
     }
   }
   return null;
+}
+
+async function generateFromPollinations(prompt) {
+  // Keyless FLUX endpoint. Random seed so repeated topics don't collide visually.
+  const seed = Math.floor(Math.random() * 1e6);
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
+    `?width=1024&height=1024&nologo=true&model=flux&seed=${seed}`;
+  try {
+    console.log('[Pollinations] Trying FLUX (keyless)');
+    const res = await axios.get(url, {
+      responseType: 'arraybuffer', timeout: 60000,
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+    });
+    if (res.data?.byteLength > 5000) {
+      const buf = await sharp(Buffer.from(res.data))
+        .resize(1080, 1080, { fit: 'cover', position: 'centre' })
+        .jpeg({ quality: 90 }).toBuffer();
+      console.log(`[Pollinations] ✓ (${Math.round(res.data.byteLength / 1024)}KB)`);
+      return buf.toString('base64');
+    }
+  } catch (e) {
+    console.log(`[Pollinations] failed: ${e.message}`);
+  }
+  return null;
+}
+
+// Try HF first (better control if the token has Inference-Providers access),
+// then fall back to the keyless Pollinations endpoint.
+async function generateHFImage(prompt) {
+  return (await generateFromHF(prompt)) || (await generateFromPollinations(prompt));
 }
 
 // ── EXPORT ────────────────────────────────────────────────────────────────────

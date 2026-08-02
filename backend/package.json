@@ -13,6 +13,7 @@
   "type": "commonjs",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@huggingface/inference": "^4.13.24",
     "@supabase/supabase-js": "^2.105.4",
     "axios": "^1.16.0",
     "cheerio": "^1.2.0",

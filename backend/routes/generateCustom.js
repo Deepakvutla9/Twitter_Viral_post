@@ -21,7 +21,7 @@ router.post('/', upload.single('image'), async (req, res) => {
       url: '',
     };
 
-    const { slides, caption, imagePrompt } = await generateCarouselSlides(article, title);
+    const { slides, caption, imagePrompt, quality } = await generateCarouselSlides(article, title);
 
     // If an image was uploaded, process it to base64 for slide 1
     let customImageBase64 = null;
@@ -36,7 +36,7 @@ router.post('/', upload.single('image'), async (req, res) => {
     const images    = await composeSlideImages(slides, null, imagePrompt, customImageBase64);
     const imageUrls = images.map((img) => `/temp/${img.filename}`);
 
-    res.json({ slides, caption, imageUrls, imagePaths: images.map((i) => i.filepath) });
+    res.json({ slides, caption, imageUrls, imagePaths: images.map((i) => i.filepath), quality });
   } catch (err) {
     console.error('[CustomGenerate]', err);
     res.status(500).json({ error: err.message });

@@ -33,6 +33,7 @@ export default function App() {
   const [loadingTrend, setLoadingTrend] = useState(false);
   const [slides, setSlides]         = useState([]);
   const [caption, setCaption]       = useState('');
+  const [quality, setQuality]       = useState(null);
   const [imageUrls, setImageUrls]   = useState([]);
   const [imagePaths, setImagePaths] = useState([]);
   const [loading, setLoading]       = useState({ news: false, generate: false, post: false, pipeline: false });
@@ -86,6 +87,7 @@ export default function App() {
     setError(null);
     setSlides([]);
     setImageUrls([]);
+    setQuality(null);
     setPosted(null);
     setLoad('news', true);
     try {
@@ -105,12 +107,14 @@ export default function App() {
     setError(null);
     setSlides([]);
     setImageUrls([]);
+    setQuality(null);
     setPosted(null);
     setLoad('generate', true);
     try {
       const result = await generateSlides(article, topic);
       setSlides(result.slides);
       setCaption(result.caption);
+      setQuality(result.quality || null);
       setImageUrls(result.imageUrls);
       setImagePaths(result.imagePaths);
     } catch (e) {
@@ -179,12 +183,14 @@ export default function App() {
     setError(null);
     setSlides([]);
     setImageUrls([]);
+    setQuality(null);
     setPosted(null);
     setLoad('generate', true);
     try {
       const result = await generateCustomSlides(customTitle, customBody, customImage);
       setSlides(result.slides);
       setCaption(result.caption);
+      setQuality(result.quality || null);
       setImageUrls(result.imageUrls);
       setImagePaths(result.imagePaths);
     } catch (e) {
@@ -200,6 +206,37 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = (e) => setCustomPreview(e.target.result);
     reader.readAsDataURL(file);
+  }
+
+  function renderQualityPanel() {
+    if (!quality) return null;
+
+    const score = quality.score ?? 0;
+    const label = score >= 90 ? 'Publish Ready' : score >= 75 ? 'Needs Review' : 'High Risk';
+    const tone = score >= 90 ? 'strong' : score >= 75 ? 'watch' : 'risk';
+    const checks = quality.checks || {};
+
+    return (
+      <div className={`quality-panel ${tone}`}>
+        <div className="quality-score">
+          <span className="quality-label">PUBLISH READINESS</span>
+          <strong>{score}</strong>
+          <span>{label}</span>
+        </div>
+        <div className="quality-checks">
+          <span>{checks.bodyWordCount || 0} words</span>
+          <span>{checks.highlightCount || 0} highlight</span>
+          <span>{checks.hashtagCount || 0} hashtags</span>
+        </div>
+        {quality.warnings?.length > 0 && (
+          <ul className="quality-warnings">
+            {quality.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
   }
 
   // Step states
@@ -377,6 +414,7 @@ export default function App() {
                           </div>
                         ))}
                       </div>
+                      {renderQualityPanel()}
                     </>
                   )}
                 </div>
@@ -544,6 +582,7 @@ export default function App() {
                         </div>
                       ))}
                     </div>
+                    {renderQualityPanel()}
                   </div>
                 </div>
               </div>
