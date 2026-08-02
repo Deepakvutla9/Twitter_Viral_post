@@ -20,48 +20,48 @@ function extractHashtags(value) {
   return matches ? matches.map((tag) => tag.trim()) : [];
 }
 
-// Merge any raw tag ("#student visa", "student visa", "#studentVisa") into a
-// single-word CamelCase hashtag ("#StudentVisa"). Preserves existing internal
-// capitals so already-merged tags like "#ArtificialIntelligence" stay intact.
-function toHashtag(raw) {
-  const words = String(raw || '').replace(/#/g, ' ').match(/[A-Za-z0-9]+/g);
-  if (!words || !words.length) return '';
-  const merged = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join('');
-  return `#${merged}`;
+// Curated Instagram hashtag pool. Every carousel posts 5 of these — chosen at
+// random — instead of model-invented tags, since Instagram now favors a small,
+// consistent, relevant set. Edit this list to change the hashtags in circulation.
+const HASHTAG_POOL = [
+  '#technology', '#tech', '#innovation', '#business', '#iphone', '#engineering',
+  '#technews', '#science', '#software', '#gadgets', '#design', '#electronics',
+  '#apple', '#programming', '#android', '#coding', '#ai', '#samsung',
+  '#smartphone', '#security', '#cybersecurity', '#education', '#computer',
+  '#instagood', '#instagram', '#pro', '#bhfyp', '#marketing', '#technologynews',
+  '#artificialintelligence', '#instatech', '#art', '#digital', '#future',
+  '#startup', '#mobile', '#techno', '#gadget', '#india', '#automation', '#it',
+  '#computerscience', '#programmer', '#internet', '#entrepreneur', '#developer',
+  '#techie', '#tecnologia', '#engineer', '#robotics', '#love', '#data',
+  '#python', '#iot', '#digitalmarketing', '#oneplus', '#gaming', '#photography',
+  '#machinelearning', '#aiart', '#digitalart', '#aiartcommunity', '#midjourney',
+  '#datascience', '#generativeart', '#deeplearning', '#midjourneyart',
+  '#aiartist', '#aiartwork', '#bigdata', '#artoftheday', '#aiartists',
+  '#digitalartist', '#midjourneyai', '#artwork', '#chatgpt', '#stablediffusion',
+  '#digitaltransformation', '#artist', '#neuralnetworks', '#dataanalytics',
+  '#dalle', '#modernart', '#nft', '#robot', '#aigenerated', '#midjourneyartwork',
+  '#analytics', '#contemporaryart', '#datascientist', '#aigeneratedart',
+  '#digitalpainting', '#abstractart',
+];
+
+// Pick `count` unique hashtags at random from the pool (Fisher–Yates shuffle).
+function pickHashtags(count = 5) {
+  const pool = HASHTAG_POOL.slice();
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, Math.min(count, pool.length));
 }
 
-// Build the final caption: hook text + a single line of EXACTLY-5 (or fewer)
-// clean, de-duplicated single-word hashtags. Prefers the structured `hashtags`
-// array; if the model instead inlined hashtags in the caption, parse the
-// trailing hashtag block so multi-word tags ("#Student Visa") still merge
-// cleanly instead of leaving stray words behind.
+// Build the final caption: hook text (with any model-inlined hashtags stripped)
+// plus a single line of 5 hashtags chosen at random from the curated pool above.
 function buildCaption(parsed) {
-  const caption = cleanText(parsed?.caption);
-
-  let hookText;
-  let rawTags;
-  if (Array.isArray(parsed?.hashtags) && parsed.hashtags.length) {
-    hookText = caption.replace(/#\S+/g, '').replace(/\s+/g, ' ').trim();
-    rawTags = parsed.hashtags;
-  } else {
-    const hashIdx = caption.indexOf('#');
-    hookText = (hashIdx >= 0 ? caption.slice(0, hashIdx) : caption).trim();
-    rawTags = hashIdx >= 0
-      ? caption.slice(hashIdx).split('#').map((s) => s.trim()).filter(Boolean)
-      : [];
-  }
-
-  const seen = new Set();
-  const tags = [];
-  for (const raw of rawTags) {
-    const tag = toHashtag(raw);
-    if (tag.length > 1 && !seen.has(tag.toLowerCase())) {
-      seen.add(tag.toLowerCase());
-      tags.push(tag);
-    }
-  }
-
-  const line = tags.slice(0, 5).join(' ');
+  const hookText = cleanText(parsed?.caption)
+    .replace(/#\S+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const line = pickHashtags(5).join(' ');
   return line ? `${hookText}\n\n${line}` : hookText;
 }
 
@@ -77,9 +77,11 @@ function normalizeBadge(value) {
 function normalizeSlides(parsed, article) {
   const allSlides = Array.isArray(parsed?.slides) ? parsed.slides : [];
   const hook = allSlides.find((slide) => slide?.type === 'hook') || allSlides[0] || {};
-  const detail = allSlides.find((slide) => slide?.type === 'detail') || allSlides[1] || {};
 
-  return [
+  // Context slides, in order — any non-hook slide that actually has body text.
+  const details = allSlides.filter((slide) => slide && slide !== hook && cleanText(slide.body));
+
+  const slides = [
     {
       type: 'hook',
       badge: normalizeBadge(hook.badge),
@@ -88,9 +90,18 @@ function normalizeSlides(parsed, article) {
     },
     {
       type: 'detail',
-      body: cleanText(detail.body || ''),
+      body: cleanText(details[0]?.body || ''),
     },
   ];
+
+  // Optional 3rd slide: keep the model's second context slide ONLY when it has
+  // real, distinct content — never a thin filler or a near-duplicate of slide 2.
+  const extra = cleanText(details[1]?.body || '');
+  if (extra && countWords(extra) >= 12 && extra.toLowerCase() !== slides[1].body.toLowerCase()) {
+    slides.push({ type: 'detail', body: extra });
+  }
+
+  return slides;
 }
 
 function evaluateCarouselContent(content) {
@@ -102,7 +113,7 @@ function evaluateCarouselContent(content) {
   const hashtags = extractHashtags(content?.caption);
   const warnings = [];
   const checks = {
-    hasTwoSlides: slides.length === 2,
+    hasTwoSlides: slides.length >= 2 && slides.length <= 3,
     hasHeadline: Boolean(cleanText(hook.headline)),
     hasDetailBody: Boolean(cleanText(detail.body)),
     bodyWordCount,
@@ -114,7 +125,7 @@ function evaluateCarouselContent(content) {
     endsWithQuestion: /\?\s*$/.test(cleanText(detail.body)),
   };
 
-  if (!checks.hasTwoSlides) warnings.push('Expected exactly 2 slides.');
+  if (!checks.hasTwoSlides) warnings.push('Expected 2 or 3 slides.');
   if (!checks.hasHeadline) warnings.push('Hook slide is missing the article headline.');
   if (!checks.hasDetailBody) warnings.push('Detail slide is missing body copy.');
   if (!checks.bodyLengthOk) warnings.push('Detail body should be 70-115 words for readable carousel pacing.');

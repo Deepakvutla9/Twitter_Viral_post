@@ -10,26 +10,30 @@ Article Title: ${article.title}
 Source: ${article.source}
 Content: ${article.fullText.slice(0, 5000)}
 
-Generate EXACTLY 2 slides:
+Generate 2 OR 3 slides. Prefer 2 — only add a third when the story genuinely needs it:
 
-SLIDE 1 — HOOK
+SLIDE 1 — HOOK (always)
 - badge: One word category tag. Examples: "NEWS", "BREAKING", "AI UPDATE", "EXCLUSIVE", "ALERT"
 - teaser: Short curiosity line ending with →. Example: "What happened? →" or "Here's the truth →"
 
-SLIDE 2 — CONTEXT
-- body: 5-6 sentences. Factual, specific, conversational. Include names, numbers, dates. End with a strong concluding statement — no questions.
+SLIDE 2 — CONTEXT (always)
+- body: 4-6 sentences, 70-100 words. Factual, specific, conversational. Include names, numbers, dates. End with a strong concluding statement — no questions.
   IMPORTANT: Wrap the single most important phrase (5-8 words) in **double asterisks** to highlight it. Example: "OpenAI just fired its CTO. **Sam Altman approved the decision personally** despite public denial."
 
+SLIDE 3 — CONTEXT (OPTIONAL — include ONLY when warranted)
+- Add this slide ONLY if the story has substantial ADDITIONAL facts, numbers, quotes, or a distinct second angle that do NOT fit in Slide 2. For thin or simple stories, OMIT it and return just 2 slides.
+- body: 4-6 sentences, 70-100 words, of genuinely NEW information not already covered in Slide 2. End with a concluding statement — no questions. Wrap ONE key phrase in **double asterisks**.
+
 RULES:
-- NEVER invent facts
+- Default to 2 slides. Add Slide 3 only when there is clearly more worth telling.
+- NEVER invent facts. Slide 3 must be real, article-grounded information — never padding or repetition of Slide 2.
 - Specific beats vague
-- Body must be 80-100 words
-- Only ONE highlighted phrase in body
+- Only ONE highlighted phrase per context slide
 - hashtags: EXACTLY 5. Each MUST be a SINGLE word with NO spaces — merge multi-word
   phrases into one CamelCase token (e.g. "student visa" → #StudentVisa, "future of
   work" → #FutureOfWork, "artificial intelligence" → #ArtificialIntelligence).
 
-Return ONLY valid JSON:
+Return ONLY valid JSON. Include a third slide object in "slides" ONLY when Slide 3 is warranted:
 {
   "slides": [
     {
@@ -39,7 +43,7 @@ Return ONLY valid JSON:
     },
     {
       "type": "detail",
-      "body": "5-6 factual sentences with **one key phrase highlighted**. End with a strong concluding statement."
+      "body": "4-6 factual sentences with **one key phrase highlighted**. End with a strong concluding statement."
     }
   ],
   "imagePrompt": "Cinematic photorealistic scene for this article. NO text, NO logos, NO UI elements. Dramatic lighting, 4k. Max 35 words.",

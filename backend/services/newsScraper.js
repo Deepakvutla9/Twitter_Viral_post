@@ -377,6 +377,23 @@ const TECH_AI_KEYWORDS = [
   'machine learning', 'deep learning', 'data', 'chip', 'gpu', 'compute',
 ];
 
+// HN's front page rarely carries a trusted, scrapable news story (mostly blogs,
+// GitHub, or paywalled sites), so when the trending path comes up empty the
+// autopilot falls back to the reliable RSS news pool the manual flow uses,
+// rotating topics for variety so it doesn't post the same angle every run.
+const FALLBACK_TOPICS = [
+  'AI', 'OpenAI', 'artificial intelligence', 'startups',
+  'cybersecurity', 'Google AI', 'chips', 'robotics',
+];
+let fallbackTopicIdx = 0;
+
+async function fetchTrendingFallback() {
+  const topic = FALLBACK_TOPICS[fallbackTopicIdx % FALLBACK_TOPICS.length];
+  fallbackTopicIdx += 1;
+  console.log(`[Trending] HN had no scrapable story — falling back to RSS news for "${topic}".`);
+  return fetchNewsArticle(topic);
+}
+
 async function fetchTrendingArticle() {
   console.log('[Trending] Fetching HN front page top stories...');
   const history = await loadHistory();
@@ -404,7 +421,7 @@ async function fetchTrendingArticle() {
 
   console.log(`[Trending] Top candidate: "${scored[0]?.title}" (score: ${scored[0]?.score})`);
 
-  if (!scored.length) throw new Error('No trending tech stories found on HN');
+  if (!scored.length) return fetchTrendingFallback();
 
   // Try to scrape top candidates
   for (const item of scored.slice(0, 8)) {
@@ -427,7 +444,7 @@ async function fetchTrendingArticle() {
     } catch {}
   }
 
-  throw new Error('Could not scrape any trending HN story');
+  return fetchTrendingFallback();
 }
 
 module.exports = { fetchNewsArticle, fetchTrendingArticle, markPosted };

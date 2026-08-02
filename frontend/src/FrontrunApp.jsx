@@ -163,7 +163,7 @@ export default function FrontrunApp() {
       setQuality(result.quality || null);
       setImageUrls(result.imageUrls || []);
       setImagePaths(result.imagePaths || []);
-      setMode('table');
+      setMode('brief');
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     } finally {
@@ -193,7 +193,7 @@ export default function FrontrunApp() {
       setQuality(result.quality || null);
       setImageUrls(result.imageUrls || []);
       setImagePaths(result.imagePaths || []);
-      setMode('table');
+      setMode('brief');
     } catch (e) {
       setError(e.response?.data?.error || e.message);
     } finally {
@@ -358,7 +358,6 @@ export default function FrontrunApp() {
           {[
             ['brief', 'Brief'],
             ['wire', 'Wire'],
-            ['table', 'Table'],
             ['runway', 'Runway'],
           ].map(([key, label]) => (
             <button
@@ -449,6 +448,7 @@ export default function FrontrunApp() {
             </div>
           </div>
 
+          <div className="draft-column">
           <div className="artifact-preview" aria-label="Carousel preview">
             {(loading.brief || loading.custom) && (
               <div className="build-overlay">
@@ -464,14 +464,22 @@ export default function FrontrunApp() {
 
             {slides.length ? (
               <div className="slide-stack">
-                <div className="preview-slide primary-slide">
-                  {imageUrls[0] ? <img src={`${IMG_BASE}${imageUrls[0]}`} alt="Hook slide" /> : null}
-                  <span>{slides[0]?.badge || 'Signal'}</span>
-                  <strong>{slides[0]?.headline || displayTitle}</strong>
+                <div className={`preview-slide primary-slide${imageUrls[0] ? ' has-image' : ''}`}>
+                  {imageUrls[0] ? (
+                    <img src={`${IMG_BASE}${imageUrls[0]}`} alt="Hook slide" />
+                  ) : (
+                    <>
+                      <span>{slides[0]?.badge || 'Signal'}</span>
+                      <strong>{slides[0]?.headline || displayTitle}</strong>
+                    </>
+                  )}
                 </div>
-                <div className="preview-slide detail-slide">
-                  {imageUrls[1] ? <img src={`${IMG_BASE}${imageUrls[1]}`} alt="Detail slide" /> : null}
-                  <p>{slides[1]?.body || ''}</p>
+                <div className={`preview-slide detail-slide${imageUrls[1] ? ' has-image' : ''}`}>
+                  {imageUrls[1] ? (
+                    <img src={`${IMG_BASE}${imageUrls[1]}`} alt="Detail slide" />
+                  ) : (
+                    <p>{(slides[1]?.body || '').replace(/\*\*/g, '')}</p>
+                  )}
                 </div>
               </div>
             ) : (
@@ -479,10 +487,42 @@ export default function FrontrunApp() {
                 <span className="preview-empty-badge">{shortText(displayTitle, 58)}</span>
                 <p>
                   Your carousel preview appears here after you press <strong>Build This</strong>.
-                  The finished slides open in <strong>The Table</strong> below.
+                  Then set the caption and ship it right below.
                 </p>
               </div>
             )}
+          </div>
+
+          {slides.length > 0 && (
+            <div className="draft-actions" aria-label="Publish draft">
+              <label className="caption-editor">
+                <span>Caption</span>
+                <textarea value={caption} onChange={(event) => setCaption(event.target.value)} rows={4} />
+              </label>
+              {posted ? (
+                <div className="posted-state">Posted to Instagram · {posted}</div>
+              ) : (
+                <button
+                  type="button"
+                  className="primary-action full ship-now"
+                  onClick={publishNow}
+                  disabled={!imagePaths.length || loading.launch}
+                >
+                  {loading.launch ? 'Shipping…' : 'Ship Now'}
+                </button>
+              )}
+              <div className="schedule-row">
+                <input
+                  type="datetime-local"
+                  value={scheduledAt}
+                  onChange={(event) => setScheduledAt(event.target.value)}
+                />
+                <button type="button" className="secondary-action" onClick={scheduleDraft}>
+                  {queueSuccess ? 'Scheduled' : 'Schedule'}
+                </button>
+              </div>
+            </div>
+          )}
           </div>
         </section>
 
@@ -526,42 +566,6 @@ export default function FrontrunApp() {
       </section>
 
       <section className="lower-grid">
-        <div className={`table-surface ${mode === 'table' ? 'spotlight' : ''}`}>
-          <div className="surface-head">
-            <div>
-              <span className="section-kicker">The Table</span>
-              <h2>Carousel light table</h2>
-            </div>
-            <button type="button" className="secondary-action compact" onClick={() => setMode('brief')}>
-              Back to Brief
-            </button>
-          </div>
-
-          <div className="light-table">
-            {[0, 1].map((index) => (
-              <article className="frame-card" key={index}>
-                <div className="frame-image">
-                  {imageUrls[index] ? <img src={`${IMG_BASE}${imageUrls[index]}`} alt={`Frame ${index + 1}`} /> : null}
-                </div>
-                <div className="frame-meta">
-                  <span>Frame {index + 1}</span>
-                  <strong>{slides[index]?.type === 'detail' ? 'Context' : 'Hook'}</strong>
-                </div>
-                <p>
-                  {slides[index]?.headline ||
-                    slides[index]?.body ||
-                    (index === 0 ? 'Build a brief to create the hook frame.' : 'Context frame appears after generation.')}
-                </p>
-              </article>
-            ))}
-          </div>
-
-          <label className="caption-editor">
-            <span>Caption composer</span>
-            <textarea value={caption} onChange={(event) => setCaption(event.target.value)} rows={5} />
-          </label>
-        </div>
-
         <div className="compose-panel">
           <div className="surface-head">
             <div>
@@ -569,29 +573,43 @@ export default function FrontrunApp() {
               <h2>Manual brief</h2>
             </div>
           </div>
-          <input
-            value={customTitle}
-            onChange={(event) => setCustomTitle(event.target.value)}
-            placeholder="Headline or post idea"
-          />
-          <textarea
-            value={customBody}
-            onChange={(event) => setCustomBody(event.target.value)}
-            placeholder="Paste source notes, facts, or your angle"
-            rows={6}
-          />
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden-input"
-            onChange={(event) => handleImageSelect(event.target.files?.[0])}
-          />
-          <button type="button" className="upload-well" onClick={() => fileInputRef.current?.click()}>
-            {customPreview ? <img src={customPreview} alt="Manual upload preview" /> : <span>Add a source image</span>}
-          </button>
+          <p className="panel-hint">Bring your own story — Frontrun writes the carousel and caption from your notes.</p>
+
+          <label className="field">
+            <span>Headline or post idea</span>
+            <input
+              value={customTitle}
+              onChange={(event) => setCustomTitle(event.target.value)}
+              placeholder="e.g. Why small teams ship faster with AI"
+            />
+          </label>
+
+          <label className="field">
+            <span>Source notes</span>
+            <textarea
+              value={customBody}
+              onChange={(event) => setCustomBody(event.target.value)}
+              placeholder="Paste facts, quotes, or the angle you want to run"
+              rows={6}
+            />
+          </label>
+
+          <div className="field">
+            <span>Cover image <em>optional</em></span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden-input"
+              onChange={(event) => handleImageSelect(event.target.files?.[0])}
+            />
+            <button type="button" className="upload-well" onClick={() => fileInputRef.current?.click()}>
+              {customPreview ? <img src={customPreview} alt="Manual upload preview" /> : <span>Drop or browse an image</span>}
+            </button>
+          </div>
+
           <button type="button" className="primary-action full" onClick={buildCustom} disabled={loading.custom}>
-            {loading.custom ? 'Composing' : 'Compose Manual Brief'}
+            {loading.custom ? 'Composing…' : 'Compose Manual Brief'}
           </button>
         </div>
 
@@ -601,40 +619,38 @@ export default function FrontrunApp() {
               <span className="section-kicker">The Runway</span>
               <h2>Launch desk</h2>
             </div>
-            <span className="queue-count">{pendingQueue.length} pending</span>
+            <span className="queue-count">{pendingQueue.length} scheduled</span>
           </div>
 
-          <div className="launch-actions">
-            {posted ? (
-              <div className="posted-state">Posted: {posted}</div>
-            ) : (
-              <button type="button" className="primary-action full" onClick={publishNow} disabled={!imagePaths.length || loading.launch}>
-                {loading.launch ? 'Shipping' : 'Ship Now'}
-              </button>
-            )}
-            <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
-            <button type="button" className="secondary-action full" onClick={scheduleDraft}>
-              {queueSuccess ? 'Added to Runway' : 'Add to Runway'}
-            </button>
+          <div className="runway-section">
+            <span className="mini-label">Scheduled posts</span>
+            <div className="runway-list">
+              {postQueue.slice(0, 5).map((item) => (
+                <div className="runway-item" key={item.id}>
+                  <span>{formatTime(item.scheduledAt)}</span>
+                  <strong>{shortText(item.title || 'Custom post', 58)}</strong>
+                  <em className={`status-${item.status}`}>{item.status}</em>
+                  {item.status === 'pending' && (
+                    <button type="button" onClick={() => removeQueued(item.id)}>
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              ))}
+              {!postQueue.length && (
+                <p className="quiet-note">Schedule a draft from the preview, or let Autopilot fill this.</p>
+              )}
+            </div>
           </div>
 
-          <div className="runway-list">
-            {postQueue.slice(0, 5).map((item) => (
-              <div className="runway-item" key={item.id}>
-                <span>{formatTime(item.scheduledAt)}</span>
-                <strong>{shortText(item.title || 'Custom post', 58)}</strong>
-                <em>{item.status}</em>
-                {item.status === 'pending' && (
-                  <button type="button" onClick={() => removeQueued(item.id)}>
-                    Cancel
-                  </button>
-                )}
-              </div>
-            ))}
-            {!postQueue.length && <p className="quiet-note">Approved drafts will line up here.</p>}
-          </div>
-
-          <div className="autopilot">
+          <div className="runway-section">
+            <div className="autopilot-head">
+              <span className="mini-label">Autopilot</span>
+              <span className={`autopilot-dot ${schedulerStatus?.running ? 'on' : ''}`}>
+                {schedulerStatus?.running ? 'Running' : 'Paused'}
+              </span>
+            </div>
+            <p className="panel-hint">Frontrun scans, builds, and posts on its own at this cadence.</p>
             <select value={cronExpression} onChange={(event) => setCronExpression(event.target.value)}>
               {CRON_PRESETS.map((preset) => (
                 <option value={preset.value} key={preset.value}>
@@ -643,17 +659,16 @@ export default function FrontrunApp() {
               ))}
             </select>
             <div className="autopilot-buttons">
-              <button type="button" className="secondary-action" onClick={() => toggleScheduler(true)}>
+              <button type="button" className="secondary-action" onClick={() => toggleScheduler(true)} disabled={schedulerStatus?.running}>
                 Start
               </button>
-              <button type="button" className="secondary-action" onClick={() => toggleScheduler(false)}>
+              <button type="button" className="secondary-action" onClick={() => toggleScheduler(false)} disabled={!schedulerStatus?.running}>
                 Stop
               </button>
               <button type="button" className="secondary-action" onClick={runAutopilot} disabled={loading.autopilot}>
-                Run Once
+                {loading.autopilot ? 'Running…' : 'Run Once'}
               </button>
             </div>
-            <small>{schedulerStatus?.running ? 'Autopilot running' : 'Autopilot paused'}</small>
           </div>
         </div>
       </section>

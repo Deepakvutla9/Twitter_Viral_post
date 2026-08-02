@@ -1065,6 +1065,21 @@ button {
   background: linear-gradient(180deg, transparent 10%, rgba(0, 0, 0, 0.84) 100%);
 }
 
+/* When a real generated slide image is present, show the image alone — the
+   headline and body are already baked into it, so no HTML text overlay. */
+.preview-slide.has-image {
+  padding: 0;
+  background: #0b0b0c;
+}
+
+.preview-slide.has-image img {
+  opacity: 1;
+}
+
+.preview-slide.has-image:after {
+  display: none;
+}
+
 .preview-slide span,
 .preview-slide strong,
 .preview-slide p {
@@ -1206,11 +1221,10 @@ button {
   width: min(1500px, 100%);
   margin: 16px auto 0;
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.7fr) minmax(300px, 0.85fr);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.92fr);
   gap: 16px;
 }
 
-.table-surface,
 .compose-panel,
 .runway-panel {
   padding: 18px;
@@ -1226,7 +1240,7 @@ button {
   justify-content: space-between;
   align-items: start;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .surface-head h2 {
@@ -1237,66 +1251,61 @@ button {
   line-height: 1;
 }
 
-.light-table {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.frame-card {
-  min-height: 330px;
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-  gap: 12px;
-  margin: 0;
-  padding: 12px;
-  border: 1px solid rgba(255,255,255,0.14);
-  border-radius: 12px;
-  background:
-    linear-gradient(145deg, rgba(255,255,255,0.11), rgba(255,255,255,0.035));
-  transition: transform 200ms ease, box-shadow 200ms ease;
-}
-
-.frame-card:hover {
-  transform: translateY(-4px) rotate(-0.5deg);
-  box-shadow: 0 16px 34px rgba(35, 28, 18, 0.12);
-}
-
-.frame-image {
-  aspect-ratio: 1;
-  overflow: hidden;
-  border-radius: var(--radius);
-  background:
-    linear-gradient(135deg, rgba(142, 232, 255, 0.28), transparent),
-    var(--night);
-}
-
-.frame-meta {
-  display: flex;
-  justify-content: space-between;
+.panel-hint {
+  margin: -2px 0 4px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 850;
-  text-transform: uppercase;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-.frame-card p {
-  margin: 0;
-  color: var(--ink-soft);
+/* ── Draft column: carousel preview + publish actions beneath it ── */
+.draft-column {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.draft-column .artifact-preview {
+  min-height: 480px;
+}
+
+.draft-actions {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.045);
+  animation: surfaceReveal 480ms cubic-bezier(.2,.75,.2,1) both;
+}
+
+.schedule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.schedule-row input {
+  min-height: 40px;
+  padding: 0 10px;
+}
+
+.ship-now {
+  min-height: 46px;
   font-size: 14px;
-  line-height: 1.45;
 }
 
+/* ── Caption editor (now lives under the preview) ── */
 .caption-editor {
   display: grid;
-  gap: 8px;
-  margin-top: 14px;
+  gap: 6px;
 }
 
 .caption-editor span {
   color: var(--muted);
   font-size: 12px;
   font-weight: 850;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -1310,16 +1319,39 @@ button {
 .caption-editor textarea:focus,
 .compose-panel textarea:focus,
 .compose-panel input:focus,
-.launch-actions input:focus,
+.schedule-row input:focus,
 .autopilot select:focus {
   border-color: rgba(142,232,255,0.64);
   box-shadow: 0 0 0 3px rgba(142,232,255,0.1);
 }
 
+/* ── Manual brief ── */
 .compose-panel {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 12px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.field > span em {
+  margin-left: 5px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.7;
 }
 
 .compose-panel input {
@@ -1331,7 +1363,8 @@ button {
 }
 
 .upload-well {
-  min-height: 130px;
+  width: 100%;
+  min-height: 118px;
   overflow: hidden;
   border: 1px dashed var(--hairline);
   border-radius: 12px;
@@ -1339,12 +1372,19 @@ button {
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
+  transition: border-color 180ms ease, background 180ms ease;
 }
 
+.upload-well:hover {
+  border-color: rgba(142,232,255,0.5);
+  background: rgba(142,232,255,0.06);
+}
+
+/* ── Launch desk / Runway ── */
 .runway-panel {
   display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 16px;
 }
 
 .queue-count {
@@ -1356,13 +1396,63 @@ button {
   font-weight: 900;
 }
 
-.launch-actions,
-.autopilot {
+.runway-section {
   display: grid;
-  gap: 9px;
+  gap: 10px;
 }
 
-.launch-actions input,
+.runway-section + .runway-section {
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+}
+
+.mini-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.autopilot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.autopilot-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.autopilot-dot:before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.autopilot-dot.on {
+  border-color: rgba(84, 208, 141, 0.5);
+  color: var(--green);
+}
+
+.autopilot-dot.on:before {
+  background: var(--green);
+  box-shadow: 0 0 10px rgba(84, 208, 141, 0.85);
+}
+
 .autopilot select {
   min-height: 40px;
   padding: 0 10px;
@@ -1385,7 +1475,7 @@ button {
 
 .runway-item {
   display: grid;
-  grid-template-columns: 76px 1fr auto auto;
+  grid-template-columns: 74px 1fr auto auto;
   gap: 10px;
   align-items: center;
   padding: 10px;
@@ -1409,6 +1499,10 @@ button {
   text-transform: uppercase;
 }
 
+.runway-item em.status-posted { color: var(--green); }
+.runway-item em.status-failed { color: var(--coral); }
+.runway-item em.status-pending { color: var(--amber); }
+
 .runway-item strong {
   font-size: 13px;
 }
@@ -1424,21 +1518,10 @@ button {
   font-weight: 800;
 }
 
-.autopilot {
-  padding-top: 12px;
-  border-top: 1px solid var(--hairline);
-}
-
 .autopilot-buttons {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
-}
-
-.autopilot small {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
 }
 
 @media (max-width: 1180px) {

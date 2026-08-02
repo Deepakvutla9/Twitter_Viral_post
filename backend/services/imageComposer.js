@@ -381,10 +381,12 @@ async function composeSlideImages(slides, ogImage = null, imagePrompt = null, cu
 
   console.log(`[ImageComposer] Slide1 photo: ${articleSlide1 ? '✓' : '✗'}  |  HF image: ${hfImg ? '✓' : '✗'}`);
 
-  // Slide 1: uploaded/article photo  |  Slide 2: HF AI image, else dark fallback
+  // Slide 1: uploaded/article photo  |  Slide 2: HF AI image  |  Slide 3 (optional):
+  // the darkened article photo for visual variety, each falling back as available.
   const slideImages = [
     articleSlide1 || hfImg,
     hfImg         || articleSlide2,
+    articleSlide2 || hfImg,
   ];
 
   const total = slides.length;
