@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { postCarousel } = require('../services/instagram');
+const { postCarousel, checkToken } = require('../services/instagram');
 const { markPosted } = require('../services/newsScraper');
 
 router.post('/carousel', async (req, res) => {
@@ -21,6 +21,13 @@ router.post('/carousel', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Read-only token health check — posts nothing. Exists so an expired token can
+// be diagnosed from outside the instance instead of by squinting at deploy logs.
+router.get('/token', async (req, res) => {
+  const result = await checkToken();
+  res.status(result.ok ? 200 : 502).json(result);
 });
 
 module.exports = router;
