@@ -3,6 +3,43 @@ const { normalizeAndEvaluateCarousel } = require('./contentQuality');
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+// Groq retires models on short notice — llama-3.3-70b-versatile was
+// decommissioned and started returning 404 model_not_found mid-flight.
+// Overridable via env so a future retirement is a dashboard change, not a
+// redeploy. Check available models: GET https://api.groq.com/openai/v1/models
+const MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+
+// The model is asked for JSON and normally returns valid JSON, so try parsing
+// it untouched FIRST. The repair passes below are destructive and used to run
+// unconditionally, which was itself a bug: rewriting a curly quote to a
+// straight one turns a legal quote inside a string value into a string
+// terminator, so ordinary prose could break an otherwise perfect response.
+// Curly doubles now become apostrophes, which can never end a JSON string.
+function parseModelJson(text) {
+  const stripControl = (s) => s.replace(/[\x00-\x1F\x7F]/g, (c) => (c === '\n' || c === '\t' ? c : ''));
+  const straightenQuotes = (s) => s.replace(/[‘’]/g, "'").replace(/[“”]/g, "'");
+  // Curly quotes used as JSON delimiters rather than as prose punctuation.
+  const quotesAsDelimiters = (s) => s.replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+
+  // Ordered least-destructive first. straightenQuotes is safe for prose but
+  // cannot fix curly quotes used AS delimiters, so quotesAsDelimiters is the last
+  // resort for that case.
+  const attempts = [
+    (s) => s,
+    straightenQuotes,
+    stripControl,
+    (s) => stripControl(straightenQuotes(s)),
+    quotesAsDelimiters,
+    (s) => stripControl(quotesAsDelimiters(s)),
+  ];
+
+  let lastErr;
+  for (const fix of attempts) {
+    try { return JSON.parse(fix(text)); } catch (e) { lastErr = e; }
+  }
+  throw new Error('Groq returned unparseable JSON: ' + lastErr.message);
+}
+
 async function generateCarouselSlides(article, topic) {
   const prompt = `You are a viral social media news carousel creator.
 
@@ -52,7 +89,7 @@ Return ONLY valid JSON. Include a third slide object in "slides" ONLY when Slide
 }`;
 
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: MODEL,
     messages: [
       {
         role: 'system',
@@ -61,7 +98,7 @@ Return ONLY valid JSON. Include a third slide object in "slides" ONLY when Slide
       { role: 'user', content: prompt },
     ],
     temperature: 0.7,
-    max_tokens: 2800,
+    max_completion_tokens: 4000,
     response_format: { type: 'json_object' },
   });
 
@@ -72,21 +109,9 @@ Return ONLY valid JSON. Include a third slide object in "slides" ONLY when Slide
   const match = text.match(/\{[\s\S]*\}/);
   if (match) text = match[0];
 
-  // Fix common JSON issues: smart quotes, unescaped apostrophes in values
-  text = text
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"');
-
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (e) {
-    // Last resort: strip control characters and retry
-    text = text.replace(/[\x00-\x1F\x7F]/g, (c) => (c === '\n' || c === '\t' ? c : ''));
-    parsed = JSON.parse(text);
-  }
+  const parsed = parseModelJson(text);
 
   return normalizeAndEvaluateCarousel(parsed, article);
 }
 
-module.exports = { generateCarouselSlides };
+module.exports = { generateCarouselSlides, parseModelJson };
