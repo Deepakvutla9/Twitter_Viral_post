@@ -40,7 +40,18 @@ function parseModelJson(text) {
   throw new Error('Groq returned unparseable JSON: ' + lastErr.message);
 }
 
-async function generateCarouselSlides(article, topic) {
+async function generateOnce(article, topic, corrections) {
+  // Feeding the previous attempt's failures back in is what makes the retry
+  // worth doing -- a bare re-roll at the same temperature tends to reproduce
+  // the same too-short body.
+  const correctionBlock = corrections?.length
+    ? `YOUR PREVIOUS ATTEMPT WAS REJECTED. Fix exactly these problems and keep everything else:
+${corrections.map((w) => `- ${w}`).join(String.fromCharCode(10))}
+The body being too short is the most common failure: COUNT the words and make sure the context slide is genuinely 70-115 words across 4-6 full sentences.
+
+`
+    : '';
+
   const prompt = `You are a viral social media news carousel creator.
 
 Article Title: ${article.title}
@@ -70,7 +81,7 @@ RULES:
   phrases into one CamelCase token (e.g. "student visa" → #StudentVisa, "future of
   work" → #FutureOfWork, "artificial intelligence" → #ArtificialIntelligence).
 
-Return ONLY valid JSON. Include a third slide object in "slides" ONLY when Slide 3 is warranted:
+${correctionBlock}Return ONLY valid JSON. Include a third slide object in "slides" ONLY when Slide 3 is warranted:
 {
   "slides": [
     {
@@ -114,4 +125,41 @@ Return ONLY valid JSON. Include a third slide object in "slides" ONLY when Slide
   return normalizeAndEvaluateCarousel(parsed, article);
 }
 
-module.exports = { generateCarouselSlides, parseModelJson };
+// Quality is scored in 20-point steps, so the reachable scores are 60 (bare
+// minimum), 80 (one of body-length / highlight correct) and 100 (both).
+const QUALITY_TARGET = Number(process.env.MIN_QUALITY_SCORE || 100);
+const MAX_ATTEMPTS = Number(process.env.MAX_GENERATION_ATTEMPTS || 3);
+
+/**
+ * Generates a carousel, retrying while the result is below the quality bar.
+ *
+ * The scoring already existed but nothing acted on it, so a one-sentence
+ * context slide shipped to Instagram looking like a broken post. Now a weak
+ * result is regenerated with its own warnings fed back as corrections, and the
+ * best attempt wins if none clear the bar.
+ */
+async function generateCarouselSlides(article, topic) {
+  let best = null;
+  let corrections = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    const result = await generateOnce(article, topic, corrections);
+    const score = result?.quality?.score ?? 0;
+    const words = result?.quality?.checks?.bodyWordCount ?? 0;
+
+    if (!best || score > (best.quality?.score ?? 0)) best = result;
+
+    if (score >= QUALITY_TARGET) {
+      console.log(`[Content] attempt ${attempt}: ${score}/100 (${words} words) — accepted`);
+      return result;
+    }
+
+    corrections = result?.quality?.warnings ?? [];
+    console.warn(`[Content] attempt ${attempt}: ${score}/100 (${words} words) — retrying — ${corrections.join(' ')}`);
+  }
+
+  console.warn(`[Content] no attempt reached ${QUALITY_TARGET}; using best (${best.quality.score}/100)`);
+  return best;
+}
+
+module.exports = { generateCarouselSlides, generateOnce, parseModelJson };

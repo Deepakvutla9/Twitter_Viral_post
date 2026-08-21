@@ -4,13 +4,22 @@ const assert = require('node:assert/strict');
 // Stub every downstream module before requiring the scheduler, so the pipeline
 // does no real work and never touches the Instagram API.
 let posts = 0;
+const goodQuality = { score: 100, warnings: [], checks: { bodyLengthOk: true, bodyWordCount: 88 } };
+let nextQuality = goodQuality;
 const stubs = {
   './newsScraper.js': {
     fetchNewsArticle: async () => ({}),
     fetchTrendingArticle: async () => ({ title: 'Stub story', url: 'https://example.com/x', points: 1, ogImage: null }),
     markPosted: async () => {},
   },
-  './gemini.js': { generateCarouselSlides: async () => ({ slides: [1, 2], caption: 'c', imagePrompt: null }) },
+  './gemini.js': {
+    generateCarouselSlides: async () => ({
+      slides: [1, 2],
+      caption: 'c',
+      imagePrompt: null,
+      quality: nextQuality,
+    }),
+  },
   './imageComposer.js': {
     composeSlideImages: async () => [{ filepath: 'a.jpg' }, { filepath: 'b.jpg' }],
     cleanOldImages: () => {},
@@ -58,4 +67,21 @@ test('concurrent runs collapse to one post', async () => {
 
 test('totalPosted tracks successful runs', () => {
   assert.equal(getStatus().totalPosted, 3);
+});
+
+test('refuses to publish a context slide that is too thin', async () => {
+  // The failure that shipped one-sentence carousels to Instagram: scoring ran
+  // but nothing acted on it.
+  nextQuality = { score: 60, warnings: ['Detail body should be 70-115 words.'], checks: { bodyLengthOk: false, bodyWordCount: 27 } };
+  const before = posts;
+  await assert.rejects(() => runPipeline({ force: true }), /too thin to publish.*27 words/s);
+  assert.equal(posts, before, 'nothing may reach Instagram when the content is thin');
+  nextQuality = goodQuality;
+});
+
+test('publishes again once the content is back above the bar', async () => {
+  const before = posts;
+  const result = await runPipeline({ force: true });
+  assert.equal(result.success, true);
+  assert.equal(posts, before + 1);
 });

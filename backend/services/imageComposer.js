@@ -49,6 +49,30 @@ function parseSegments(raw) {
   return parts.map((p, i) => ({ text: p, hl: i % 2 === 1 })).filter(s => s.text);
 }
 
+// Choose the largest type size whose wrapped body fits the available height.
+// Returns the lines plus the size that produced them. Dropping text is the last
+// resort, not the first: a shrunk slide still reads, a truncated one does not.
+function fitBody(rawBody, availHeight, steps, trim) {
+  for (const step of steps) {
+    const lines = wrapHighlighted(rawBody, step.maxChars);
+    if (lines.length * step.lh <= availHeight) {
+      return { lines, size: step.size, lh: step.lh, truncated: false };
+    }
+  }
+  const smallest = steps[steps.length - 1];
+  const maxLines = Math.floor(availHeight / smallest.lh);
+  const all = wrapHighlighted(rawBody, smallest.maxChars);
+  if (all.length <= maxLines) {
+    return { lines: all, size: smallest.size, lh: smallest.lh, truncated: false };
+  }
+  return {
+    lines: trim(rawBody, maxLines, smallest.maxChars),
+    size: smallest.size,
+    lh: smallest.lh,
+    truncated: true,
+  };
+}
+
 // Word-wrap highlighted text → array of lines, each line = [{w, hl}]
 function wrapHighlighted(raw, maxChars) {
   const segments = parseSegments(raw);
@@ -212,30 +236,45 @@ function buildContextSlide(slide, imgBase64, slideNum, totalSlides) {
        <rect x="0" y="0" width="${W}" height="${H}" fill="url(#grad2)"/>`;
 
   // Body text — vertically centered with headroom + footroom
-  const BODY_SIZE  = 48;
-  const BODY_LH    = 66;
-  const BODY_MAX   = 28;
-  const MAX_LINES  = 10;
-
-  // Trim body to last complete sentence that fits within MAX_LINES
-  function trimToCompleteSentence(text, maxLines, maxChars) {
-    const allLines = wrapHighlighted(text, maxChars);
-    if (allLines.length <= maxLines) return allLines;
-    // Join words from first maxLines lines, then cut at last sentence-ending punctuation
-    const words = allLines.slice(0, maxLines).flat().map(w => w.w).join(' ');
-    const match = words.match(/^(.*[.!?])\s*/s);
-    if (match) {
-      return wrapHighlighted(match[1], maxChars);
-    }
-    return allLines.slice(0, maxLines);
-  }
-
-  const bodyLines = trimToCompleteSentence(rawBody, MAX_LINES, BODY_MAX);
-
-  // Center the block vertically between top padding (120px) and social bar
+  // Body text — vertically centered with headroom + footroom.
+  //
+  // The context slide is written to 70-115 words, but 48px type only fits about
+  // 280 characters here — roughly one sentence. The old code quietly trimmed
+  // everything past that to the last complete sentence, which is why posts went
+  // out reading as incomplete. Shrink the type until the WHOLE body fits
+  // instead of dropping sentences; short bodies still render at full size.
   const SOCIAL_TOP   = H - 58;
   const AVAIL_TOP    = 120;
   const AVAIL_BOTTOM = SOCIAL_TOP - 40;
+  const AVAIL_HEIGHT = AVAIL_BOTTOM - AVAIL_TOP;
+
+  // maxChars tracks size: the text column is fixed, so smaller type fits more
+  // characters per line. Kept proportional to the original 48px/28ch pairing.
+  const BODY_STEPS = [
+    { size: 48, lh: 66, maxChars: 28 },
+    { size: 44, lh: 60, maxChars: 31 },
+    { size: 40, lh: 55, maxChars: 34 },
+    { size: 36, lh: 50, maxChars: 38 },
+    { size: 32, lh: 45, maxChars: 43 },
+    { size: 28, lh: 40, maxChars: 49 },
+  ];
+
+  // Trim to the last complete sentence that fits — the last resort, so a slide
+  // never ends mid-thought even when the body overflows the smallest size.
+  function trimToCompleteSentence(text, maxLines, maxChars) {
+    const allLines = wrapHighlighted(text, maxChars);
+    if (allLines.length <= maxLines) return allLines;
+    const words = allLines.slice(0, maxLines).flat().map(w => w.w).join(' ');
+    const match = words.match(/^(.*[.!?])\s*/s);
+    if (match) return wrapHighlighted(match[1], maxChars);
+    return allLines.slice(0, maxLines);
+  }
+
+  const fitted = fitBody(rawBody, AVAIL_HEIGHT, BODY_STEPS, trimToCompleteSentence);
+  const bodyLines = fitted.lines;
+  const BODY_SIZE = fitted.size;
+  const BODY_LH   = fitted.lh;
+
   const blockHeight  = bodyLines.length * BODY_LH;
   const BODY_Y       = Math.round((AVAIL_TOP + AVAIL_BOTTOM - blockHeight) / 2) + BODY_LH;
 
@@ -420,4 +459,4 @@ function cleanOldImages() {
   });
 }
 
-module.exports = { composeSlideImages, cleanOldImages };
+module.exports = { composeSlideImages, cleanOldImages, fitBody, wrapHighlighted };
