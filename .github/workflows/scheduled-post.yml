@@ -1,0 +1,77 @@
+name: Carousel AI — scheduled post
+
+# Render's free tier sleeps the instance after ~15 minutes idle, and a sleeping
+# instance runs no in-process cron. This workflow is the reliable clock: it
+# wakes the backend and triggers the pipeline at the same 09:00 / 18:00 UTC
+# slots the service used to post at.
+on:
+  schedule:
+    - cron: '0 9,18 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: carousel-post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BACKEND: https://twitter-viral-post.onrender.com
+    steps:
+      - name: Wake the Render instance
+        # A cold start takes 30-60s; Render holds the request while it boots.
+        run: |
+          curl -sS --fail-with-body --retry 6 --retry-delay 15 --retry-all-errors \
+               --max-time 120 "$BACKEND/api/health"
+          echo
+
+      - name: Record start time
+        id: t
+        run: echo "start=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger the pipeline
+        run: |
+          code=$(curl -sS -o /tmp/trigger.json -w '%{http_code}' \
+            -X POST "$BACKEND/api/scheduler/trigger" \
+            -H "x-trigger-secret: ${{ secrets.TRIGGER_SECRET }}" \
+            --max-time 120)
+          cat /tmp/trigger.json; echo
+          if [ "$code" != "202" ]; then
+            echo "::error::Trigger returned HTTP $code"
+            exit 1
+          fi
+
+      - name: Wait for the post to land
+        # The trigger is fire-and-forget (a full run can outlast the proxy
+        # timeout), so confirm the outcome by polling status.
+        run: |
+          START="${{ steps.t.outputs.start }}"
+          for i in $(seq 1 24); do
+            sleep 20
+            curl -sS --max-time 60 "$BACKEND/api/scheduler/status" -o /tmp/status.json || continue
+
+            posted=$(jq -r '.lastResult.postedAt  // ""' /tmp/status.json)
+            failed=$(jq -r '.lastResult.failedAt  // ""' /tmp/status.json)
+            skipped=$(jq -r '.lastResult.skippedAt // ""' /tmp/status.json)
+
+            if [ -n "$posted" ] && [ "$posted" \> "$START" ]; then
+              echo "Posted: $(jq -r '.lastResult.postId // "?"' /tmp/status.json)"
+              echo "Story:  $(jq -r '.lastResult.topic  // "?"' /tmp/status.json)"
+              exit 0
+            fi
+            if [ -n "$skipped" ] && [ "$skipped" \> "$START" ]; then
+              echo "::warning::Run skipped ($(jq -r '.lastResult.reason // "?"' /tmp/status.json)) — something already posted in this slot."
+              exit 0
+            fi
+            if [ -n "$failed" ] && [ "$failed" \> "$START" ]; then
+              echo "::error::Pipeline failed: $(jq -r '.lastResult.error // "?"' /tmp/status.json)"
+              exit 1
+            fi
+            echo "waiting... ($i/24)"
+          done
+
+          echo "::error::Timed out after 8 minutes with no result."
+          cat /tmp/status.json
+          exit 1
