@@ -43,7 +43,7 @@ test('returns quality warnings for brittle carousel copy', () => {
   });
 
   assert.ok(quality.score < 80);
-  assert.ok(quality.warnings.includes('Detail body should be 70-115 words for readable carousel pacing.'));
+  assert.ok(quality.warnings.some((w) => w.startsWith('Detail body should be 70-95 words')));
   assert.ok(quality.warnings.includes('Caption should include exactly 5 hashtags.'));
   assert.ok(quality.warnings.includes('Detail body should end with a concluding statement, not a question.'));
 });

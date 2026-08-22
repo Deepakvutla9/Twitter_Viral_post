@@ -117,7 +117,7 @@ function evaluateCarouselContent(content) {
     hasHeadline: Boolean(cleanText(hook.headline)),
     hasDetailBody: Boolean(cleanText(detail.body)),
     bodyWordCount,
-    bodyLengthOk: bodyWordCount >= 70 && bodyWordCount <= 115,
+    bodyLengthOk: bodyWordCount >= 70 && bodyWordCount <= 95,
     highlightCount,
     hasSingleHighlight: highlightCount === 1,
     hashtagCount: hashtags.length,
@@ -128,7 +128,7 @@ function evaluateCarouselContent(content) {
   if (!checks.hasTwoSlides) warnings.push('Expected 2 or 3 slides.');
   if (!checks.hasHeadline) warnings.push('Hook slide is missing the article headline.');
   if (!checks.hasDetailBody) warnings.push('Detail slide is missing body copy.');
-  if (!checks.bodyLengthOk) warnings.push('Detail body should be 70-115 words for readable carousel pacing.');
+  if (!checks.bodyLengthOk) warnings.push('Detail body should be 70-95 words — more than that renders too small to read on a phone, so the extra belongs on slide 3.');
   if (!checks.hasSingleHighlight) warnings.push('Detail body should include exactly one highlighted phrase.');
   if (!checks.hasFiveHashtags) warnings.push('Caption should include exactly 5 hashtags.');
   if (checks.endsWithQuestion) warnings.push('Detail body should end with a concluding statement, not a question.');

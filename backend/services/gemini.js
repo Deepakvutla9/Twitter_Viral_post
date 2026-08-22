@@ -65,15 +65,17 @@ SLIDE 1 — HOOK (always)
 - teaser: Short curiosity line ending with →. Example: "What happened? →" or "Here's the truth →"
 
 SLIDE 2 — CONTEXT (always)
-- body: 4-6 sentences, 70-100 words. Factual, specific, conversational. Include names, numbers, dates. End with a strong concluding statement — no questions.
+- body: 4-6 sentences, 70-90 words — NEVER more than 90. Factual, specific, conversational. Include names, numbers, dates. End with a strong concluding statement — no questions.
   IMPORTANT: Wrap the single most important phrase (5-8 words) in **double asterisks** to highlight it. Example: "OpenAI just fired its CTO. **Sam Altman approved the decision personally** despite public denial."
 
-SLIDE 3 — CONTEXT (OPTIONAL — include ONLY when warranted)
-- Add this slide ONLY if the story has substantial ADDITIONAL facts, numbers, quotes, or a distinct second angle that do NOT fit in Slide 2. For thin or simple stories, OMIT it and return just 2 slides.
-- body: 4-6 sentences, 70-100 words, of genuinely NEW information not already covered in Slide 2. End with a concluding statement — no questions. Wrap ONE key phrase in **double asterisks**.
+SLIDE 3 — CONTEXT (include whenever the story does not fit in 90 words)
+- Slide 2 is capped at 90 words because longer text renders too small to read on a phone. If the article has MORE real substance than fits in 90 words — further facts, numbers, quotes, or a distinct second angle — do NOT cram it into Slide 2 and do NOT drop it. Move it to Slide 3.
+- Omit Slide 3 only when the story genuinely has nothing further worth saying.
+- body: 4-6 sentences, 70-90 words, of genuinely NEW information not already covered in Slide 2. End with a concluding statement — no questions. Wrap ONE key phrase in **double asterisks**.
 
 RULES:
-- Default to 2 slides. Add Slide 3 only when there is clearly more worth telling.
+- NEVER exceed 90 words on any single slide. Overflow belongs on Slide 3 — never compressed, never cut.
+- Add Slide 3 whenever the story has more than 90 words of real, article-grounded material.
 - NEVER invent facts. Slide 3 must be real, article-grounded information — never padding or repetition of Slide 2.
 - Specific beats vague
 - Only ONE highlighted phrase per context slide
