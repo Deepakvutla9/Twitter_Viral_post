@@ -40,6 +40,33 @@ function parseModelJson(text) {
   throw new Error('Groq returned unparseable JSON: ' + lastErr.message);
 }
 
+// Groq's free tier allows 8000 tokens per minute and one generation costs
+// roughly 4000, so the quality-retry loop below can exhaust the budget in a
+// single run. A 429 is a wait, not a failure: back off for the interval Groq
+// names and try again rather than losing the posting slot.
+const MAX_RATE_LIMIT_WAITS = 3;
+function rateLimitDelayMs(err) {
+  if (err?.status !== 429) return null;
+  const fromHeader = Number(err?.headers?.['retry-after']);
+  if (Number.isFinite(fromHeader) && fromHeader > 0) return Math.ceil(fromHeader * 1000);
+  const m = String(err?.message || '').match(/try again in ([\d.]+)s/i);
+  if (m) return Math.ceil(parseFloat(m[1]) * 1000) + 500;
+  return 20000;
+}
+async function createCompletionWithBackoff(payload) {
+  for (let attempt = 0; attempt <= MAX_RATE_LIMIT_WAITS; attempt += 1) {
+    try {
+      return await groq.chat.completions.create(payload);
+    } catch (err) {
+      const wait = rateLimitDelayMs(err);
+      if (wait === null || attempt === MAX_RATE_LIMIT_WAITS) throw err;
+      console.warn(`[Groq] rate limited — waiting ${Math.round(wait / 1000)}s then retrying`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw new Error('unreachable');
+}
+
 async function generateOnce(article, topic, corrections) {
   // Feeding the previous attempt's failures back in is what makes the retry
   // worth doing -- a bare re-roll at the same temperature tends to reproduce
@@ -73,6 +100,12 @@ SLIDE 3 — CONTEXT (include whenever the story does not fit in 90 words)
 - Omit Slide 3 only when the story genuinely has nothing further worth saying.
 - body: 4-6 sentences, 70-90 words, of genuinely NEW information not already covered in Slide 2. End with a concluding statement — no questions. Wrap ONE key phrase in **double asterisks**.
 
+GROUNDING (most important rule):
+- Every number, date, percentage, dollar figure, deadline and proper noun in your slides MUST appear verbatim in the Article Content above. Copy them; never infer, complete or round them.
+- If the article gives a date without a year, write it without a year. NEVER add a year the article does not state.
+- If the article does not give a figure, do not supply one. Write the story without it.
+- If the Article Content is too thin to write from, say what it does say and stop. Do not fill the gap with plausible detail.
+
 RULES:
 - NEVER exceed 90 words on any single slide. Overflow belongs on Slide 3 — never compressed, never cut.
 - Add Slide 3 whenever the story has more than 90 words of real, article-grounded material.
@@ -101,7 +134,7 @@ ${correctionBlock}Return ONLY valid JSON. Include a third slide object in "slide
   "hashtags": ["#StudentVisa", "#FutureOfWork", "#ArtificialIntelligence", "#TechNews", "#AI"]
 }`;
 
-  const completion = await groq.chat.completions.create({
+  const completion = await createCompletionWithBackoff({
     model: MODEL,
     messages: [
       {

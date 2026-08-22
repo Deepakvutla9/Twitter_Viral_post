@@ -71,6 +71,10 @@ const TRUSTED_DOMAINS = [
   'apnews.com', 'politico.com', 'thehill.com', 'marketwatch.com',
   'nvidia.com', 'openai.com', 'anthropic.com', 'deepmind.com', 'google.com',
   'microsoft.com', 'meta.com', 'apple.com', 'amazon.com',
+  // Indian outlets — the only sources that reliably carry visa/immigration
+  // news for Indian workers and students. Verified to scrape with og:image.
+  'economictimes.indiatimes.com', 'timesofindia.indiatimes.com',
+  'hindustantimes.com', 'livemint.com', 'thehindu.com', 'indianexpress.com',
 ];
 
 // Keywords that indicate opinion/blog posts — not real news
@@ -249,6 +253,45 @@ function scoreArticle(item, topic) {
   return score;
 }
 
+// Newsletter/app-promo lines that survive extraction on Indian news sites and
+// look like article text to a length check.
+const BOILERPLATE_PATTERNS = [
+  /join our .{0,40}whatsapp channel/i,
+  /catch all the .{0,60}news/i,
+  /subscribe to .{0,40}(prime|epaper|newsletter)/i,
+  /read the .{0,20}epaper online/i,
+  /download the .{0,30}app/i,
+  /click here to .{0,40}(subscribe|download)/i,
+  /this article was generated/i,
+  /all rights reserved/i,
+];
+
+// The minimum body a carousel may be written from.
+//
+// This exists because the old bar was 200 characters, and a paywalled article
+// that yielded 224 characters of pure newsletter boilerplate cleared it. The
+// model was then asked to write 90 words from a headline and invented every
+// specific in the post -- percentages, dollar figures, dates, company names.
+// For visa and immigration news that is not a cosmetic bug: people make
+// immigration decisions on these numbers.
+const MIN_ARTICLE_CHARS = Number(process.env.MIN_ARTICLE_CHARS || 800);
+
+// Strip the promo lines, then report whether real reporting is left.
+function stripBoilerplate(text) {
+  return String(text || '')
+    .split(/\n+/)
+    .filter((line) => {
+      const t = line.trim();
+      if (!t) return false;
+      return !BOILERPLATE_PATTERNS.some((re) => re.test(t));
+    })
+    .join('\n')
+    .trim();
+}
+function hasRealContent(text) {
+  return stripBoilerplate(text).length >= MIN_ARTICLE_CHARS;
+}
+
 // ── ARTICLE SCRAPER ──────────────────────────────────────────────────────────
 async function scrapeArticle(url) {
   const res = await axios.get(url, { timeout: 10000, headers: HEADERS });
@@ -339,7 +382,7 @@ async function fetchNewsArticle(topic, exclude = []) {
     console.log(`[News] Trying: "${item.title}" (score:${item.score} hn:${item.hnPoints} r:${item.redditScore}) @ ${item.source}`);
     try {
       const { text: fullText, ogImage } = await scrapeArticle(item.url);
-      if (fullText.length > 200) {
+      if (hasRealContent(fullText)) {
         // Reject opinion pieces / personal blogs
         const lowerText = fullText.slice(0, 500).toLowerCase();
         const isOpinion = OPINION_SIGNALS.some((s) => lowerText.includes(s));
@@ -355,17 +398,12 @@ async function fetchNewsArticle(topic, exclude = []) {
     }
   }
 
-  // Fallback
-  const fallback = candidates[0];
-  return {
-    title:    fallback.title,
-    url:      fallback.url,
-    source:   fallback.source,
-    pubDate:  fallback.pubDate,
-    fullText: fallback.title + (fallback.summary ? '\n\n' + fallback.summary : ''),
-    ogImage:  null,
-    points:   fallback.score,
-  };
+  // No title-only fallback. Handing the model a headline with no body is how
+  // fabricated specifics get written, so a run with nothing scrapable fails
+  // loudly instead of publishing invention.
+  throw new Error(
+    `Found ${candidates.length} candidates but none had at least ${MIN_ARTICLE_CHARS} characters of real article text.`,
+  );
 }
 
 // ── TRENDING: pick best AI/tech story from HN front page ─────────────────────
@@ -427,7 +465,7 @@ async function fetchTrendingArticle() {
   for (const item of scored.slice(0, 8)) {
     try {
       const { text: fullText, ogImage } = await scrapeArticle(item.url);
-      if (fullText.length > 200) {
+      if (hasRealContent(fullText)) {
         const lowerText = fullText.slice(0, 500).toLowerCase();
         if (OPINION_SIGNALS.some((s) => lowerText.includes(s))) continue;
         console.log(`[Trending] Using: "${item.title}" (${item.hnPoints} pts)`);
@@ -447,4 +485,100 @@ async function fetchTrendingArticle() {
   return fetchTrendingFallback();
 }
 
-module.exports = { fetchNewsArticle, fetchTrendingArticle, markPosted };
+// ── VISA / IMMIGRATION NEWS (Indian workers + students) ─────────────────────
+//
+// The tech pool cannot serve this: HN never carries visa news and neither do
+// the tech RSS feeds. These are direct-link Indian outlets, each verified to
+// carry visa stories and to scrape cleanly with an og:image.
+//
+// Google News search RSS was tried and rejected: its links never leave
+// news.google.com (they serve a ~600KB JS shell), so the article behind them
+// can never be scraped for text or image.
+const VISA_FEEDS = [
+  { name: 'ET NRI',         url: 'https://economictimes.indiatimes.com/nri/rssfeeds/7771250.cms' },
+  { name: 'TOI NRI',        url: 'https://timesofindia.indiatimes.com/rssfeeds/7098551.cms' },
+  { name: 'HT World',       url: 'https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml' },
+  { name: 'LiveMint',       url: 'https://www.livemint.com/rss/news' },
+  { name: 'Hindu National', url: 'https://www.thehindu.com/news/national/feeder/default.rss' },
+];
+
+// A story must mention a real visa/immigration-status term to qualify. The
+// broader words below (migrant, citizenship, deportation) are NOT enough on
+// their own: they let in Indian domestic detention stories, which are not visa
+// news for workers and students going abroad.
+const VISA_CORE = /\b(h-?1b|h-?4|l-?1|f-?1|opt|cpt|green card|uscis|visas?|student visa|work permit|permanent residency|eb-?[123]|i-140|i-485|sevis|consulate|embassy)\b/i;
+// Widen only the scoring, never the gate.
+const VISA_KEYWORDS = /\b(h-?1b|h-?4|l-?1|f-?1|opt|cpt|green card|uscis|visas?|immigration|immigrants?|student visa|work permit|permanent residency|eb-?[123]|i-140|i-485|sevis|deportation|naturalisation|naturalization|citizenship|migrants?)\b/i;
+
+// Weighted so an H-1B or student-visa story beats a generic immigration piece,
+// and anything India-specific beats a story about some other country.
+const VISA_PRIORITY = [
+  ['h-1b', 30], ['h1b', 30], ['student visa', 28], ['f-1', 25], ['opt', 22],
+  ['green card', 22], ['uscis', 18], ['work permit', 18], ['sevis', 18],
+  ['india', 20], ['indian', 20], ['visa', 12], ['immigration', 10],
+];
+
+function scoreVisaArticle(item) {
+  const hay = `${item.title} ${item.summary}`.toLowerCase();
+  let score = 0;
+  for (const [term, weight] of VISA_PRIORITY) {
+    if (hay.includes(term)) score += weight;
+  }
+  // Recency matters more here than for tech: visa rules change week to week.
+  const ageHours = (Date.now() - new Date(item.pubDate).getTime()) / 3600000;
+  if (Number.isFinite(ageHours)) score += Math.max(0, 40 - ageHours);
+  return Math.round(score);
+}
+
+async function fetchVisaArticle() {
+  console.log('[Visa] Fetching immigration news for Indian workers and students...');
+  const results = await Promise.all(VISA_FEEDS.map(fetchRSSFeed));
+  const allItems = results.flat();
+  console.log(`[Visa] Total raw articles: ${allItems.length}`);
+
+  const history = await loadHistory();
+  const seen = new Set();
+  const THIS_YEAR = new Date().getFullYear();
+
+  const candidates = allItems
+    .filter((item) => {
+      if (!item.url || seen.has(item.url) || history.has(item.url)) return false;
+      if (!VISA_CORE.test(`${item.title} ${item.summary}`)) return false;
+      try {
+        const host = new URL(item.url).hostname.replace('www.', '');
+        if (BLOCKED_DOMAINS.some((d) => host.includes(d))) return false;
+        if (!TRUSTED_DOMAINS.some((d) => host.includes(d))) return false;
+      } catch { return false; }
+      if (!item.pubDate) return false;
+      const parsed = new Date(item.pubDate);
+      if (isNaN(parsed.getTime()) || parsed.getFullYear() < THIS_YEAR) return false;
+      seen.add(item.url);
+      return true;
+    })
+    .map((item) => ({ ...item, score: scoreVisaArticle(item) }))
+    .sort((a, b) => b.score - a.score);
+
+  console.log(`[Visa] ${candidates.length} visa candidates after filtering`);
+  if (!candidates.length) throw new Error('No fresh visa news found.');
+
+  for (const item of candidates.slice(0, 10)) {
+    console.log(`[Visa] Trying: "${item.title}" (score:${item.score}) @ ${item.source}`);
+    try {
+      const { text: fullText, ogImage } = await scrapeArticle(item.url);
+      if (hasRealContent(fullText)) {
+        console.log(`[Visa] Got "${item.title}" — ${fullText.length} chars, image: ${ogImage ? 'yes' : 'no'}`);
+        // category drives the hashtag pool: tech tags on a visa post read as spam.
+        return {
+          title: item.title, url: item.url, source: item.source, pubDate: item.pubDate,
+          fullText, ogImage, points: item.score, category: 'visa',
+        };
+      }
+    } catch (e) {
+      console.log(`[Visa] Scrape failed ${item.source}: ${e.message}`);
+    }
+  }
+
+  throw new Error('Visa candidates found but none could be scraped.');
+}
+
+module.exports = { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, scoreVisaArticle, hasRealContent, stripBoilerplate, markPosted };

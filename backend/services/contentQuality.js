@@ -44,9 +44,25 @@ const HASHTAG_POOL = [
   '#digitalpainting', '#abstractart',
 ];
 
+// Visa/immigration posts need their own tags — the tech pool above would put
+// #midjourney and #python on an H-1B post, which reads as spam and reaches the
+// wrong audience entirely.
+const VISA_HASHTAG_POOL = [
+  '#h1b', '#h1bvisa', '#visa', '#visanews', '#immigration', '#immigrationnews',
+  '#greencard', '#uscis', '#studentvisa', '#f1visa', '#opt', '#stemopt',
+  '#studyabroad', '#studyinusa', '#indianstudents', '#indiansabroad', '#nri',
+  '#workvisa', '#usimmigration', '#immigrants', '#permanentresidency',
+  '#visaapplication', '#visainterview', '#canadaimmigration', '#ukvisa',
+  '#australiavisa', '#abroadstudies', '#ielts', '#desiabroad', '#overseas',
+  '#greencardholder', '#employmentbasedvisa', '#travelvisa', '#consulate',
+  '#visaupdate', '#immigrationupdate', '#indiansinusa', '#h4visa',
+];
+
+const HASHTAG_POOLS = { visa: VISA_HASHTAG_POOL };
+
 // Pick `count` unique hashtags at random from the pool (Fisher–Yates shuffle).
-function pickHashtags(count = 5) {
-  const pool = HASHTAG_POOL.slice();
+function pickHashtags(count = 5, category) {
+  const pool = (HASHTAG_POOLS[category] || HASHTAG_POOL).slice();
   for (let i = pool.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
     [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -56,12 +72,12 @@ function pickHashtags(count = 5) {
 
 // Build the final caption: hook text (with any model-inlined hashtags stripped)
 // plus a single line of 5 hashtags chosen at random from the curated pool above.
-function buildCaption(parsed) {
+function buildCaption(parsed, category) {
   const hookText = cleanText(parsed?.caption)
     .replace(/#\S+/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-  const line = pickHashtags(5).join(' ');
+  const line = pickHashtags(5, category).join(' ');
   return line ? `${hookText}\n\n${line}` : hookText;
 }
 
@@ -153,7 +169,7 @@ function normalizeAndEvaluateCarousel(parsed, article) {
   const normalized = {
     slides: normalizeSlides(parsed, article),
     imagePrompt: cleanText(parsed?.imagePrompt),
-    caption: buildCaption(parsed),
+    caption: buildCaption(parsed, article?.category),
   };
 
   return {
@@ -163,6 +179,7 @@ function normalizeAndEvaluateCarousel(parsed, article) {
 }
 
 module.exports = {
+  pickHashtags,
   cleanText,
   countWords,
   countHighlights,

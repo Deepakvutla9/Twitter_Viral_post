@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { fetchNewsArticle, fetchTrendingArticle, markPosted } = require('./newsScraper');
+const { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, markPosted } = require('./newsScraper');
 const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
@@ -8,6 +8,22 @@ let activeJob = null;
 
 // Set REQUIRE_QUALITY=false to publish regardless of the score.
 const REQUIRE_QUALITY = process.env.REQUIRE_QUALITY !== 'false';
+
+/**
+ * Chooses which pool this run draws from, so one account can carry both
+ * tech/AI and visa news without either crowding the other out.
+ *
+ * Derived from the clock rather than a rotating counter on purpose: the
+ * free-tier instance sleeps and restarts constantly, so an in-memory index
+ * would reset to the same value every run and only ever pick one source.
+ * With the 09:00/18:00 schedule this yields one tech post and one visa post
+ * a day. CONTENT_SOURCE=tech|visa pins it for manual runs.
+ */
+function pickSource(now = new Date()) {
+  const forced = process.env.CONTENT_SOURCE;
+  if (forced === 'tech' || forced === 'visa') return forced;
+  return now.getUTCHours() < 12 ? 'tech' : 'visa';
+}
 
 // The external GitHub Actions trigger and the in-process cron both aim at the
 // same 09:00/18:00 slots. If the instance happens to be awake when the cron
@@ -42,11 +58,24 @@ async function runPipeline({ force = false } = {}) {
   jobStatus.lastRun = new Date().toISOString();
 
   try {
-    console.log('[Pipeline] Fetching top trending story from HN front page...');
+    const source = pickSource();
+    console.log(`[Pipeline] Source for this run: ${source}`);
 
-    // Always use HN trending — most viral story right now
-    const article = await fetchTrendingArticle();
-    console.log(`[Pipeline] Trending: "${article.title}" (${article.points} pts)`);
+    // Visa news falls back to the tech pool rather than failing the slot — a
+    // missed post is worse than an off-topic one, and the feeds occasionally
+    // have nothing new that clears the dedupe.
+    let article;
+    if (source === 'visa') {
+      try {
+        article = await fetchVisaArticle();
+      } catch (err) {
+        console.warn(`[Pipeline] Visa pool empty (${err.message}) — falling back to tech.`);
+        article = await fetchTrendingArticle();
+      }
+    } else {
+      article = await fetchTrendingArticle();
+    }
+    console.log(`[Pipeline] Selected: "${article.title}" (${article.points} pts, ${article.category || 'tech'})`);
 
     const { slides, caption, imagePrompt, quality } = await generateCarouselSlides(article, article.title);
     const words = quality?.checks?.bodyWordCount ?? 0;
@@ -127,4 +156,4 @@ function autoResume() {
   startScheduler(defaultCron);
 }
 
-module.exports = { runPipeline, startScheduler, stopScheduler, getStatus, setLastResult, autoResume };
+module.exports = { runPipeline, startScheduler, stopScheduler, getStatus, setLastResult, autoResume, pickSource };
