@@ -44,15 +44,36 @@ test('an unknown category falls back to the tech pool rather than empty', () => 
   assert.equal(pickHashtags(5, 'nonsense').length, 5);
 });
 
-test('the morning slot runs tech and the evening slot runs visa', () => {
+test('the four daily slots alternate tech and visa', () => {
   delete process.env.CONTENT_SOURCE;
-  assert.equal(pickSource(new Date('2026-08-22T09:00:00Z')), 'tech');
+  assert.equal(pickSource(new Date('2026-08-22T00:00:00Z')), 'tech');
+  assert.equal(pickSource(new Date('2026-08-22T06:00:00Z')), 'visa');
+  assert.equal(pickSource(new Date('2026-08-22T12:00:00Z')), 'tech');
   assert.equal(pickSource(new Date('2026-08-22T18:00:00Z')), 'visa');
+});
+
+test('each slot holds its choice for the whole 6-hour window', () => {
+  // A late-firing cron or a manual run inside the same window must not flip
+  // the source and post the other kind twice in a row.
+  delete process.env.CONTENT_SOURCE;
+  for (const h of [6, 7, 8, 9, 10, 11]) {
+    assert.equal(pickSource(new Date(Date.UTC(2026, 7, 22, h))), 'visa', `hour ${h}`);
+  }
+  for (const h of [12, 13, 14, 15, 16, 17]) {
+    assert.equal(pickSource(new Date(Date.UTC(2026, 7, 22, h))), 'tech', `hour ${h}`);
+  }
+});
+
+test('a full day yields two tech and two visa posts', () => {
+  delete process.env.CONTENT_SOURCE;
+  const slots = [0, 6, 12, 18].map((h) => pickSource(new Date(Date.UTC(2026, 7, 22, h))));
+  assert.equal(slots.filter((s) => s === 'tech').length, 2);
+  assert.equal(slots.filter((s) => s === 'visa').length, 2);
 });
 
 test('CONTENT_SOURCE pins the pool for manual runs', () => {
   process.env.CONTENT_SOURCE = 'visa';
-  assert.equal(pickSource(new Date('2026-08-22T09:00:00Z')), 'visa');
+  assert.equal(pickSource(new Date('2026-08-22T00:00:00Z')), 'visa');
   process.env.CONTENT_SOURCE = 'tech';
   assert.equal(pickSource(new Date('2026-08-22T18:00:00Z')), 'tech');
   process.env.CONTENT_SOURCE = 'garbage';
@@ -81,4 +102,27 @@ test('the visa gate excludes domestic detention news', () => {
 
 test('fetchVisaArticle is exported and callable', () => {
   assert.equal(typeof fetchVisaArticle, 'function');
+});
+
+test('the visa hashtag pool is large enough to stay varied', () => {
+  // Five tags per post, four posts a day -- a small pool would repeat the same
+  // handful constantly and read as spam.
+  const seen = new Set();
+  for (let i = 0; i < 500; i += 1) pickHashtags(5, 'visa').forEach((t) => seen.add(t));
+  assert.ok(seen.size >= 50, `pool is only ${seen.size} tags`);
+});
+
+test('every visa tag is a single lowercase token', () => {
+  const seen = new Set();
+  for (let i = 0; i < 500; i += 1) pickHashtags(5, 'visa').forEach((t) => seen.add(t));
+  for (const tag of seen) {
+    assert.match(tag, /^#[a-z0-9]+$/, `${tag} is not a single lowercase token`);
+  }
+});
+
+test('a post never repeats the same tag', () => {
+  for (let i = 0; i < 200; i += 1) {
+    const tags = pickHashtags(5, 'visa');
+    assert.equal(new Set(tags).size, 5);
+  }
 });

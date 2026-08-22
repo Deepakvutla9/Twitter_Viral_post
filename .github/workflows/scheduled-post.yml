@@ -2,11 +2,11 @@ name: Carousel AI — scheduled post
 
 # Render's free tier sleeps the instance after ~15 minutes idle, and a sleeping
 # instance runs no in-process cron. This workflow is the reliable clock: it
-# wakes the backend and triggers the pipeline at the same 09:00 / 18:00 UTC
-# slots the service used to post at.
+# wakes the backend and triggers the pipeline every 6 hours (00/06/12/18 UTC),
+# alternating tech and visa news slot by slot.
 on:
   schedule:
-    - cron: '0 9,18 * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 concurrency:

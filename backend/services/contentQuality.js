@@ -48,14 +48,25 @@ const HASHTAG_POOL = [
 // #midjourney and #python on an H-1B post, which reads as spam and reaches the
 // wrong audience entirely.
 const VISA_HASHTAG_POOL = [
-  '#h1b', '#h1bvisa', '#visa', '#visanews', '#immigration', '#immigrationnews',
-  '#greencard', '#uscis', '#studentvisa', '#f1visa', '#opt', '#stemopt',
-  '#studyabroad', '#studyinusa', '#indianstudents', '#indiansabroad', '#nri',
-  '#workvisa', '#usimmigration', '#immigrants', '#permanentresidency',
-  '#visaapplication', '#visainterview', '#canadaimmigration', '#ukvisa',
-  '#australiavisa', '#abroadstudies', '#ielts', '#desiabroad', '#overseas',
-  '#greencardholder', '#employmentbasedvisa', '#travelvisa', '#consulate',
-  '#visaupdate', '#immigrationupdate', '#indiansinusa', '#h4visa',
+  // visa / immigration status
+  '#h1b', '#h1bvisa', '#h4visa', '#visa', '#visanews', '#visaupdate',
+  '#immigration', '#immigrationnews', '#immigrationupdate', '#greencard',
+  '#greencardholder', '#uscis', '#permanentresidency', '#workvisa',
+  '#usimmigration', '#immigrants', '#visaapplication', '#visainterview',
+  '#employmentbasedvisa', '#travelvisa', '#consulate', '#studyvisa',
+  // students
+  '#studentvisa', '#f1visa', '#opt', '#stemopt', '#internationalstudents',
+  '#internationalstudent', '#internationaleducation', '#studyabroad',
+  '#studyabroadlife', '#studyoverseas', '#overseaseducation', '#educationabroad',
+  '#abroadstudies', '#highereducation', '#university', '#college', '#education',
+  '#student', '#students', '#studentlife', '#study', '#ielts', '#classof2026',
+  // destinations
+  '#studyinusa', '#studyincanada', '#studyinuk', '#studyinaustralia',
+  '#canadaimmigration', '#ukvisa', '#australiavisa', '#canada', '#uk',
+  '#australia', '#overseas',
+  // audience
+  '#indianstudents', '#indiansabroad', '#indiansinusa', '#nri', '#desiabroad',
+  '#travel',
 ];
 
 const HASHTAG_POOLS = { visa: VISA_HASHTAG_POOL };

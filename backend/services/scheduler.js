@@ -16,13 +16,15 @@ const REQUIRE_QUALITY = process.env.REQUIRE_QUALITY !== 'false';
  * Derived from the clock rather than a rotating counter on purpose: the
  * free-tier instance sleeps and restarts constantly, so an in-memory index
  * would reset to the same value every run and only ever pick one source.
- * With the 09:00/18:00 schedule this yields one tech post and one visa post
- * a day. CONTENT_SOURCE=tech|visa pins it for manual runs.
+ *
+ * With the 6-hourly schedule (00/06/12/18 UTC) the slots alternate, giving two
+ * tech posts and two visa posts a day rather than clustering each kind
+ * together. CONTENT_SOURCE=tech|visa pins it for manual runs.
  */
 function pickSource(now = new Date()) {
   const forced = process.env.CONTENT_SOURCE;
   if (forced === 'tech' || forced === 'visa') return forced;
-  return now.getUTCHours() < 12 ? 'tech' : 'visa';
+  return Math.floor(now.getUTCHours() / 6) % 2 === 0 ? 'tech' : 'visa';
 }
 
 // The external GitHub Actions trigger and the in-process cron both aim at the
