@@ -68,7 +68,7 @@ const TRUSTED_DOMAINS = [
   'theatlantic.com', 'axios.com', 'protocol.com', 'infoq.com',
   'thenextweb.com', 'fastcompany.com', 'inc.com', 'entrepreneur.com',
   'nature.com', 'science.org', 'newscientist.com', 'scientificamerican.com',
-  'apnews.com', 'politico.com', 'thehill.com', 'marketwatch.com',
+  'apnews.com', 'politico.com', 'npr.org', 'thehill.com', 'marketwatch.com',
   'nvidia.com', 'openai.com', 'anthropic.com', 'deepmind.com', 'google.com',
   'microsoft.com', 'meta.com', 'apple.com', 'amazon.com',
   // Indian outlets — the only sources that reliably carry visa/immigration
@@ -581,4 +581,100 @@ async function fetchVisaArticle() {
   throw new Error('Visa candidates found but none could be scraped.');
 }
 
-module.exports = { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, scoreVisaArticle, hasRealContent, stripBoilerplate, markPosted };
+// ── TRUMP / MAJOR US POLITICS ───────────────────────────────────────────────
+//
+// Verified sources only. Axios carries by far the most Trump stories but
+// returns 403 on its article pages, so nothing there is scrapable; Politico's
+// feed is dead (403). Both were dropped rather than left to fail silently.
+const TRUMP_FEEDS = [
+  { name: 'Guardian US',   url: 'https://www.theguardian.com/us-news/rss' },
+  { name: 'CNBC Politics', url: 'https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=10000113' },
+  { name: 'The Hill',      url: 'https://thehill.com/news/feed/' },
+  { name: 'BBC US',        url: 'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml' },
+  { name: 'BBC World',     url: 'https://feeds.bbci.co.uk/news/world/rss.xml' },
+  { name: 'NPR Politics',  url: 'https://feeds.npr.org/1014/rss.xml' },
+];
+
+const TRUMP_GATE = /\btrump\b/i;
+
+// "Big news", not any mention. Trump appears in dozens of stories a day, most
+// of them incremental, so weight the things that make a story consequential.
+const TRUMP_SIGNIFICANCE = [
+  ['executive order', 30], ['supreme court', 28], ['indict', 30], ['impeach', 30],
+  ['sanctions', 25], ['tariff', 25], ['pardon', 25], ['shutdown', 22], ['veto', 22],
+  ['ruling', 22], ['ruled', 22], ['war', 22], ['strike', 20], ['fires', 20],
+  ['fired', 20], ['resign', 20], ['investigation', 18], ['lawsuit', 16],
+  ['summit', 18], ['ban', 18], ['signs', 15], ['signed', 15], ['deal', 15],
+  ['billion', 15], ['election', 15], ['nominat', 15], ['announce', 12],
+];
+
+function scoreTrumpArticle(item) {
+  const title = String(item.title || '').toLowerCase();
+  const hay = `${title} ${String(item.summary || '').toLowerCase()}`;
+  let score = 0;
+  for (const [term, weight] of TRUMP_SIGNIFICANCE) {
+    if (hay.includes(term)) score += weight;
+  }
+  // A story with Trump in the headline is about him; one that only mentions him
+  // in the body usually is not.
+  if (TRUMP_GATE.test(title)) score += 25;
+  const ageHours = (Date.now() - new Date(item.pubDate).getTime()) / 3600000;
+  if (Number.isFinite(ageHours)) score += Math.max(0, 40 - ageHours);
+  return Math.round(score);
+}
+
+async function fetchTrumpArticle() {
+  console.log('[Trump] Fetching major US politics news...');
+  const results = await Promise.all(TRUMP_FEEDS.map(fetchRSSFeed));
+  const allItems = results.flat();
+  console.log(`[Trump] Total raw articles: ${allItems.length}`);
+
+  const history = await loadHistory();
+  const seen = new Set();
+  const THIS_YEAR = new Date().getFullYear();
+
+  const candidates = allItems
+    .filter((item) => {
+      if (!item.url || seen.has(item.url) || history.has(item.url)) return false;
+      const hay = `${item.title} ${item.summary}`;
+      if (!TRUMP_GATE.test(hay)) return false;
+      // Visa stories belong to the visa pool — posting them here would double up.
+      if (VISA_CORE.test(hay)) return false;
+      try {
+        const host = new URL(item.url).hostname.replace('www.', '');
+        if (BLOCKED_DOMAINS.some((d) => host.includes(d))) return false;
+        if (!TRUSTED_DOMAINS.some((d) => host.includes(d))) return false;
+      } catch { return false; }
+      if (!item.pubDate) return false;
+      const parsed = new Date(item.pubDate);
+      if (isNaN(parsed.getTime()) || parsed.getFullYear() < THIS_YEAR) return false;
+      seen.add(item.url);
+      return true;
+    })
+    .map((item) => ({ ...item, score: scoreTrumpArticle(item) }))
+    .sort((a, b) => b.score - a.score);
+
+  console.log(`[Trump] ${candidates.length} candidates after filtering`);
+  if (!candidates.length) throw new Error('No fresh Trump news found.');
+
+  for (const item of candidates.slice(0, 10)) {
+    console.log(`[Trump] Trying: "${item.title}" (score:${item.score}) @ ${item.source}`);
+    try {
+      const { text: fullText, ogImage } = await scrapeArticle(item.url);
+      if (hasRealContent(fullText)) {
+        console.log(`[Trump] Got "${item.title}" — ${fullText.length} chars`);
+        return {
+          title: item.title, url: item.url, source: item.source, pubDate: item.pubDate,
+          fullText, ogImage, points: item.score, category: 'politics',
+        };
+      }
+    } catch (e) {
+      console.log(`[Trump] Scrape failed ${item.source}: ${e.message}`);
+    }
+  }
+
+  throw new Error('Trump candidates found but none could be scraped.');
+}
+
+
+module.exports = { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, scoreVisaArticle, scoreTrumpArticle, hasRealContent, stripBoilerplate, markPosted };

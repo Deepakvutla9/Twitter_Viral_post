@@ -69,7 +69,16 @@ const VISA_HASHTAG_POOL = [
   '#travel',
 ];
 
-const HASHTAG_POOLS = { visa: VISA_HASHTAG_POOL };
+const POLITICS_HASHTAG_POOL = [
+  '#trump', '#donaldtrump', '#politics', '#uspolitics', '#politicalnews',
+  '#breakingnews', '#news', '#usnews', '#whitehouse', '#washington',
+  '#government', '#congress', '#senate', '#supremecourt', '#election',
+  '#democracy', '#policy', '#economy', '#tariffs', '#trade', '#foreignpolicy',
+  '#worldnews', '#geopolitics', '#america', '#usa', '#republicans',
+  '#democrats', '#currentevents', '#headlines', '#breaking', '#potus',
+  '#executiveorder', '#lawandpolitics', '#nationalnews',
+];
+const HASHTAG_POOLS = { visa: VISA_HASHTAG_POOL, politics: POLITICS_HASHTAG_POOL };
 
 // Pick `count` unique hashtags at random from the pool (Fisher–Yates shuffle).
 function pickHashtags(count = 5, category) {

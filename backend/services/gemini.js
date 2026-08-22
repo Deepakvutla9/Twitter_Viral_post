@@ -176,23 +176,31 @@ const MAX_ATTEMPTS = Number(process.env.MAX_GENERATION_ATTEMPTS || 3);
 async function generateCarouselSlides(article, topic) {
   let best = null;
   let corrections = null;
-
+  let lastError = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    const result = await generateOnce(article, topic, corrections);
+    let result;
+    try {
+      result = await generateOnce(article, topic, corrections);
+    } catch (err) {
+      // A single bad generation must not lose the posting slot. Groq
+      // occasionally returns 400 json_validate_failed in JSON mode, which is a
+      // sampling accident rather than a broken prompt, so the next attempt
+      // usually succeeds.
+      lastError = err;
+      console.warn(`[Content] attempt ${attempt} errored: ${String(err.message).slice(0, 120)}`);
+      continue;
+    }
     const score = result?.quality?.score ?? 0;
     const words = result?.quality?.checks?.bodyWordCount ?? 0;
-
     if (!best || score > (best.quality?.score ?? 0)) best = result;
-
     if (score >= QUALITY_TARGET) {
       console.log(`[Content] attempt ${attempt}: ${score}/100 (${words} words) — accepted`);
       return result;
     }
-
     corrections = result?.quality?.warnings ?? [];
     console.warn(`[Content] attempt ${attempt}: ${score}/100 (${words} words) — retrying — ${corrections.join(' ')}`);
   }
-
+  if (!best) throw lastError || new Error('Generation failed with no result.');
   console.warn(`[Content] no attempt reached ${QUALITY_TARGET}; using best (${best.quality.score}/100)`);
   return best;
 }

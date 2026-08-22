@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, markPosted } = require('./newsScraper');
+const { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, markPosted } = require('./newsScraper');
 const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
@@ -9,22 +9,38 @@ let activeJob = null;
 // Set REQUIRE_QUALITY=false to publish regardless of the score.
 const REQUIRE_QUALITY = process.env.REQUIRE_QUALITY !== 'false';
 
+const SOURCES = ['tech', 'visa', 'trump'];
+// Which pool each of the four daily slots (00/06/12/18 UTC) draws from.
+// Visa gets two slots because it is the primary brief; tech and Trump get one
+// each. Override with SLOT_PLAN, e.g. SLOT_PLAN=trump,visa,trump,tech
+const DEFAULT_SLOT_PLAN = ['tech', 'visa', 'trump', 'visa'];
+function slotPlan() {
+  const raw = process.env.SLOT_PLAN;
+  if (!raw) return DEFAULT_SLOT_PLAN;
+  const parsed = raw.split(',').map((s) => s.trim().toLowerCase()).filter((s) => SOURCES.includes(s));
+  if (!parsed.length) {
+    console.warn(`[Scheduler] ignoring invalid SLOT_PLAN: ${raw}`);
+    return DEFAULT_SLOT_PLAN;
+  }
+  return parsed;
+}
 /**
- * Chooses which pool this run draws from, so one account can carry both
- * tech/AI and visa news without either crowding the other out.
+ * Chooses which pool this run draws from, so one account can carry tech, visa
+ * and Trump news without any of them crowding the others out.
  *
  * Derived from the clock rather than a rotating counter on purpose: the
  * free-tier instance sleeps and restarts constantly, so an in-memory index
  * would reset to the same value every run and only ever pick one source.
+ * Keying off the 6-hour block also means a late-firing cron or a manual run
+ * inside the same window picks the same source instead of flipping.
  *
- * With the 6-hourly schedule (00/06/12/18 UTC) the slots alternate, giving two
- * tech posts and two visa posts a day rather than clustering each kind
- * together. CONTENT_SOURCE=tech|visa pins it for manual runs.
+ * CONTENT_SOURCE=tech|visa|trump pins it for manual runs.
  */
 function pickSource(now = new Date()) {
   const forced = process.env.CONTENT_SOURCE;
-  if (forced === 'tech' || forced === 'visa') return forced;
-  return Math.floor(now.getUTCHours() / 6) % 2 === 0 ? 'tech' : 'visa';
+  if (SOURCES.includes(forced)) return forced;
+  const plan = slotPlan();
+  return plan[Math.floor(now.getUTCHours() / 6) % plan.length];
 }
 
 // The external GitHub Actions trigger and the in-process cron both aim at the
@@ -66,12 +82,16 @@ async function runPipeline({ force = false } = {}) {
     // Visa news falls back to the tech pool rather than failing the slot — a
     // missed post is worse than an off-topic one, and the feeds occasionally
     // have nothing new that clears the dedupe.
+    // A themed pool falls back to tech rather than failing the slot: a missed
+    // post is worse than an off-topic one, and the feeds occasionally have
+    // nothing new that clears the dedupe.
+    const FETCHERS = { visa: fetchVisaArticle, trump: fetchTrumpArticle };
     let article;
-    if (source === 'visa') {
+    if (FETCHERS[source]) {
       try {
-        article = await fetchVisaArticle();
+        article = await FETCHERS[source]();
       } catch (err) {
-        console.warn(`[Pipeline] Visa pool empty (${err.message}) — falling back to tech.`);
+        console.warn(`[Pipeline] ${source} pool empty (${err.message}) — falling back to tech.`);
         article = await fetchTrendingArticle();
       }
     } else {
@@ -158,4 +178,4 @@ function autoResume() {
   startScheduler(defaultCron);
 }
 
-module.exports = { runPipeline, startScheduler, stopScheduler, getStatus, setLastResult, autoResume, pickSource };
+module.exports = { runPipeline, startScheduler, stopScheduler, getStatus, setLastResult, autoResume, pickSource, slotPlan };

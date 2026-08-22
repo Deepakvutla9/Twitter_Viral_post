@@ -44,11 +44,10 @@ test('an unknown category falls back to the tech pool rather than empty', () => 
   assert.equal(pickHashtags(5, 'nonsense').length, 5);
 });
 
-test('the four daily slots alternate tech and visa', () => {
+test('visa holds two of the four daily slots', () => {
   delete process.env.CONTENT_SOURCE;
-  assert.equal(pickSource(new Date('2026-08-22T00:00:00Z')), 'tech');
+  delete process.env.SLOT_PLAN;
   assert.equal(pickSource(new Date('2026-08-22T06:00:00Z')), 'visa');
-  assert.equal(pickSource(new Date('2026-08-22T12:00:00Z')), 'tech');
   assert.equal(pickSource(new Date('2026-08-22T18:00:00Z')), 'visa');
 });
 
@@ -56,19 +55,22 @@ test('each slot holds its choice for the whole 6-hour window', () => {
   // A late-firing cron or a manual run inside the same window must not flip
   // the source and post the other kind twice in a row.
   delete process.env.CONTENT_SOURCE;
+  delete process.env.SLOT_PLAN;
   for (const h of [6, 7, 8, 9, 10, 11]) {
     assert.equal(pickSource(new Date(Date.UTC(2026, 7, 22, h))), 'visa', `hour ${h}`);
   }
   for (const h of [12, 13, 14, 15, 16, 17]) {
-    assert.equal(pickSource(new Date(Date.UTC(2026, 7, 22, h))), 'tech', `hour ${h}`);
+    assert.equal(pickSource(new Date(Date.UTC(2026, 7, 22, h))), 'trump', `hour ${h}`);
   }
 });
 
-test('a full day yields two tech and two visa posts', () => {
+test('a full day covers every pool, with visa weighted highest', () => {
   delete process.env.CONTENT_SOURCE;
+  delete process.env.SLOT_PLAN;
   const slots = [0, 6, 12, 18].map((h) => pickSource(new Date(Date.UTC(2026, 7, 22, h))));
-  assert.equal(slots.filter((s) => s === 'tech').length, 2);
   assert.equal(slots.filter((s) => s === 'visa').length, 2);
+  assert.equal(slots.filter((s) => s === 'tech').length, 1);
+  assert.equal(slots.filter((s) => s === 'trump').length, 1);
 });
 
 test('CONTENT_SOURCE pins the pool for manual runs', () => {
