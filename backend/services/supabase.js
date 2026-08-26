@@ -28,11 +28,20 @@ let warned = false;
  */
 function assertProductionSafe() {
   if (process.env.NODE_ENV !== 'production') return;
-  if (process.env.SUPABASE_SERVICE_ROLE_KEY) return;
+
+  // Both, not either. A service-role key with no URL still yields a null client,
+  // and the callers then fall back to legacy environment credentials — which is
+  // the failure this guard exists to prevent, arriving by a different door.
+  const missing = [];
+  if (!process.env.SUPABASE_URL) missing.push('SUPABASE_URL');
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (!missing.length) return;
+
   throw new Error(
-    'Refusing to start: NODE_ENV=production with no SUPABASE_SERVICE_ROLE_KEY. ' +
-    'The anon key cannot read accounts or ig_tokens once RLS is enabled, which ' +
-    'would surface as missing configuration mid-run. Set SUPABASE_SERVICE_ROLE_KEY.',
+    `Refusing to start: NODE_ENV=production with ${missing.join(' and ')} unset. ` +
+    'Without a service-role connection the process cannot read accounts or ' +
+    'ig_tokens once RLS is enabled, and would silently fall back to legacy ' +
+    'environment credentials instead.',
   );
 }
 

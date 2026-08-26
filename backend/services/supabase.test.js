@@ -27,8 +27,29 @@ test('production without a service-role key refuses to start', () => {
   assert.throws(() => getSupabase(), /Refusing to start/);
 });
 
-test('production with a service-role key is fine', () => {
+test('production with a service-role key but no URL also refuses', () => {
+  // The key alone still yields a null client, and the callers then fall back to
+  // legacy environment credentials — the same failure by a different door.
   process.env.NODE_ENV = 'production';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'service';
+  delete process.env.SUPABASE_URL;
+
+  assert.throws(() => assertProductionSafe(), /SUPABASE_URL/);
+  assert.throws(() => getSupabase(), /Refusing to start/);
+});
+
+test('production names every missing variable at once', () => {
+  process.env.NODE_ENV = 'production';
+  delete process.env.SUPABASE_URL;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  const err = (() => { try { assertProductionSafe(); } catch (e) { return e; } })();
+  assert.match(err.message, /SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/);
+});
+
+test('production with both set is fine', () => {
+  process.env.NODE_ENV = 'production';
+  process.env.SUPABASE_URL = 'https://example.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service';
   assert.doesNotThrow(() => assertProductionSafe());
 });

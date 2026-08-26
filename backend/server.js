@@ -4,10 +4,11 @@ const cors = require('cors');
 const path = require('path');
 const { cleanOldImages } = require('./services/imageComposer');
 const { autoResume } = require('./services/scheduler');
-const { postCarousel, checkToken, refreshToken } = require('./services/instagram');
+const { postCarousel } = require('./services/instagram');
 const postQueue = require('./services/postQueue');
 const { assertProductionSafe, isServiceRole } = require('./services/supabase');
-const { getAccount, listActiveAccounts } = require('./services/accounts');
+const { getAccount } = require('./services/accounts');
+const { keepTokensFresh } = require('./services/tokenMaintenance');
 
 const scrapeRoutes         = require('./routes/scrape');
 const generateRoutes       = require('./routes/generate');
@@ -63,32 +64,9 @@ setInterval(processQueue, 60 * 1000);
 setInterval(cleanOldImages, 60 * 60 * 1000);
 
 const PORT = process.env.PORT || 3001;
-// Keep the long-lived Instagram token alive. Instagram User tokens last ~60
-// days; refreshing extends them another ~60, so as long as the server runs at
-// least monthly the token never lapses. Runs on startup and every 7 days.
-async function keepTokenFresh() {
-  let accounts;
-  try {
-    accounts = await listActiveAccounts();
-  } catch (e) {
-    console.warn(`[Instagram] ⚠ could not list accounts: ${e.message}`);
-    return;
-  }
 
-  // One account's dead token must not stop the others being kept alive.
-  for (const account of accounts) {
-    const tok = await checkToken(account);
-    if (!tok.ok) {
-      console.warn(`[Instagram] ⚠ TOKEN PROBLEM for ${account.slug} — posts will fail until fixed:\n           ${tok.error}`);
-      continue;
-    }
-    console.log(`[Instagram] Token OK — posting as @${tok.username} (${account.slug})`);
-    const refreshed = await refreshToken(account);
-    if (!refreshed.ok) console.warn(`[Instagram] token refresh skipped for ${account.slug}: ${refreshed.error}`);
-  }
-}
-
-setInterval(keepTokenFresh, 7 * 24 * 60 * 60 * 1000); // weekly
+// Runs on startup and every 7 days. See services/tokenMaintenance.js.
+setInterval(keepTokensFresh, 7 * 24 * 60 * 60 * 1000); // weekly
 
 // Refuse to start on the anon key in production rather than discovering it as
 // missing configuration in the middle of a scheduled run.
@@ -97,6 +75,6 @@ assertProductionSafe();
 app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`[Supabase] ${isServiceRole() ? 'service-role key' : 'anon key / no database'}`);
-  await keepTokenFresh();
+  await keepTokensFresh();
   autoResume();
 });

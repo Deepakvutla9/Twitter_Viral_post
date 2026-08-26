@@ -82,8 +82,7 @@ async function storeToken(account, token, { expiresAt = null, expectedVersion } 
       .insert({ account_slug: slug, token, expires_at: expiresAt, refreshed_at: now });
     if (!error) return { won: true, token, version: now, persisted: true };
     if (error.code !== '23505') throw new TokenError(slug, `could not be stored: ${error.message}`);
-    const winner = await readRow(slug);
-    return { won: false, token: winner?.token ?? token, version: winner?.refreshed_at ?? null, persisted: true };
+    return adoptWinner(slug, 'insert');
   }
 
   const { data, error } = await db
@@ -98,8 +97,27 @@ async function storeToken(account, token, { expiresAt = null, expectedVersion } 
 
   // Matched no row: someone refreshed between our read and our write. Their
   // token is the live one.
+  return adoptWinner(slug, 'compare-and-set');
+}
+
+/**
+ * Read back whoever won the race.
+ *
+ * If there is no winner to read — the row was deleted, or the reread failed —
+ * then nothing was stored and there is no live token to adopt. Returning the
+ * caller's own token here would report persisted:true for a value the database
+ * never accepted, and the caller would go on using a token nothing else can see.
+ * Better to say so.
+ */
+async function adoptWinner(slug, via) {
   const winner = await readRow(slug);
-  return { won: false, token: winner?.token ?? token, version: winner?.refreshed_at ?? null, persisted: true };
+  if (!winner?.token) {
+    throw new TokenError(
+      slug,
+      `lost a ${via} race but no stored token could be read back — nothing was persisted`,
+    );
+  }
+  return { won: false, token: winner.token, version: winner.refreshed_at, persisted: true };
 }
 
 module.exports = { resolveToken, storeToken, readRow, TokenError, LEGACY_SLUG };

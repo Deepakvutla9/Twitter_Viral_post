@@ -30,7 +30,12 @@ function makeDb(initial = null, hooks = {}) {
     q.update = (payload) => { q._op = 'update'; q._payload = payload; return q; };
     q.insert = async (payload) => {
       if (hooks.beforeInsert) hooks.beforeInsert(setRow);
-      if (row) return { error: { code: '23505', message: 'duplicate key value' } };
+      if (row) {
+        // The row vanishing between the duplicate and the reread is the case
+        // where there is no winner to adopt.
+        if (hooks.afterDuplicate) hooks.afterDuplicate(setRow);
+        return { error: { code: '23505', message: 'duplicate key value' } };
+      }
       row = { ...payload };
       return { error: null };
     };
@@ -117,6 +122,36 @@ test('an insert that loses the race also adopts the winning token', async () => 
   assert.equal(out.won, false);
   assert.equal(out.token, 'WINNER');
   assert.equal(db._row().token, 'WINNER');
+});
+
+test('losing a race with nothing readable back is an error, not a claimed success', async () => {
+  // The row is deleted rather than replaced, so the compare-and-set matches
+  // nothing and there is no winner to adopt. Reporting persisted:true with the
+  // caller's own token would hand back a token the database never accepted.
+  const db = useDb(makeDb(
+    { account_slug: 'shadesofirony', token: 'OLD', refreshed_at: 'v1' },
+    { beforeUpdate: (setRow) => setRow(null) },
+  ));
+
+  await assert.rejects(
+    () => storeToken(ACCOUNT, 'LOSER', { expectedVersion: 'v1' }),
+    (e) => e instanceof TokenError && /nothing was persisted/.test(e.message),
+  );
+  assert.equal(db._row(), null);
+});
+
+test('a duplicate insert with nothing readable back is an error too', async () => {
+  // A row exists at insert time, so the insert is a duplicate — then it vanishes
+  // before the reread, leaving no winner to adopt.
+  useDb(makeDb(null, {
+    beforeInsert: (setRow) => setRow({ account_slug: 'shadesofirony', token: 'X', refreshed_at: 'v1' }),
+    afterDuplicate: (setRow) => setRow(null),
+  }));
+
+  await assert.rejects(
+    () => storeToken(ACCOUNT, 'LOSER', { expectedVersion: null }),
+    (e) => e instanceof TokenError && /nothing was persisted/.test(e.message),
+  );
 });
 
 test('with no database configured nothing is persisted and it says so', async () => {
