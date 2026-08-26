@@ -16,6 +16,8 @@ function makeDb(cfg = {}) {
     const q = { table, filters: {}, cols: null, ordered: null };
     q.select = (cols) => { q.cols = cols; return q; };
     q.eq = (c, v) => { q.filters[c] = v; return q; };
+    q.neq = (c, v) => { q.filters[`neq:${c}`] = v; return q; };
+    q.gte = (c, v) => { q.filters[`gte:${c}`] = v; return q; };
     q.order = (c, o) => { q.ordered = [c, o]; return q; };
     q.delete = () => q;
     q.in = (col, ids) => {
@@ -155,4 +157,70 @@ test('with no database configured marking is skipped, not fatal', async () => {
   supa.__setClient(null, false);
   await markPosted('https://story', ONE);
   assert.deepEqual([...(await loadHistory(ONE))], []);
+});
+
+// ── cross-account overlap policy (separate from dedupe) ─────────────────────
+
+const { loadCrossAccountRecent, loadExclusions } = require('./newsScraper');
+
+const COOLDOWN_KEYS = ['CROSS_ACCOUNT_COOLDOWN_HOURS'];
+let cooldownSnapshot = {};
+test.beforeEach(() => {
+  cooldownSnapshot = Object.fromEntries(COOLDOWN_KEYS.map((k) => [k, process.env[k]]));
+});
+test.afterEach(() => {
+  for (const k of COOLDOWN_KEYS) {
+    if (cooldownSnapshot[k] === undefined) delete process.env[k];
+    else process.env[k] = cooldownSnapshot[k];
+  }
+});
+
+test('the cooldown asks only for other accounts, within a window', async () => {
+  const db = makeDb({ resolve: () => ({ data: [{ url: 'https://theirs' }], error: null }) });
+  supa.__setClient(db);
+  process.env.CROSS_ACCOUNT_COOLDOWN_HOURS = '24';
+
+  const out = await loadCrossAccountRecent(ONE);
+
+  assert.deepEqual([...out], ['https://theirs']);
+  const [q] = db._log.selects;
+  assert.equal(q.filters['neq:account'], 'shadesofirony', 'excludes this account');
+  assert.ok(q.filters['gte:posted_at'], 'and is time-boxed');
+});
+
+test('exclusions combine own history with another account recent posts', async () => {
+  // Per-account dedupe deliberately lets both accounts post the same story.
+  // Whether they should within the same cycle is a separate policy.
+  const db = makeDb({
+    resolve: (q) => ({
+      data: q.filters['neq:account']
+        ? [{ url: 'https://shared' }]
+        : [{ url: 'https://mine' }],
+      error: null,
+    }),
+  });
+  supa.__setClient(db);
+  process.env.CROSS_ACCOUNT_COOLDOWN_HOURS = '24';
+
+  const out = await loadExclusions(ONE);
+  assert.deepEqual([...out].sort(), ['https://mine', 'https://shared']);
+});
+
+test('a zero cooldown lets accounts overlap freely', async () => {
+  const db = makeDb({ resolve: () => ({ data: [{ url: 'https://mine' }], error: null }) });
+  supa.__setClient(db);
+  process.env.CROSS_ACCOUNT_COOLDOWN_HOURS = '0';
+
+  assert.equal((await loadCrossAccountRecent(ONE)).size, 0);
+  const out = await loadExclusions(ONE);
+  assert.deepEqual([...out], ['https://mine'], 'own history still applies');
+});
+
+test('a failed cooldown read throws rather than risking a shared headline', async () => {
+  supa.__setClient(makeDb({ resolve: (q) => (q.filters['neq:account']
+    ? { data: null, error: { message: 'timeout' } }
+    : { data: [], error: null }) }));
+  process.env.CROSS_ACCOUNT_COOLDOWN_HOURS = '24';
+
+  await assert.rejects(() => loadCrossAccountRecent(ONE), /two accounts posting the same story/);
 });

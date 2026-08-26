@@ -15,6 +15,9 @@ require.cache[axiosPath] = {
 const supa = require('./supabase');
 const { fetchTrendingArticle } = require('./newsScraper');
 
+// This test is about the account surviving the fallback, not overlap policy.
+process.env.CROSS_ACCOUNT_COOLDOWN_HOURS = '0';
+
 const ONE = Object.freeze({ slug: 'shadesofirony', handle: '@shadesofirony', igUserId: '17841400000000000' });
 
 function makeDb() {
@@ -23,6 +26,8 @@ function makeDb() {
     const q = { filters: {}, cols: null };
     q.select = (cols) => { q.cols = cols; return q; };
     q.eq = (c, v) => { q.filters[c] = v; return q; };
+    q.neq = (c, v) => { q.filters[`neq:${c}`] = v; return q; };
+    q.gte = (c, v) => { q.filters[`gte:${c}`] = v; return q; };
     q.order = () => q;
     q.then = (resolve, reject) => {
       selects.push({ cols: q.cols, filters: { ...q.filters } });

@@ -47,6 +47,55 @@ async function loadHistory(account) {
   return new Set((data || []).map((r) => r.url));
 }
 
+/**
+ * URLs another account posted recently.
+ *
+ * Dedupe is per account by design, so nothing stops two handles running the same
+ * headline in the same cycle. That is an overlap policy question, not a dedupe
+ * one, and it gets its own knob: a story another account published inside the
+ * cooldown is held back rather than being permanently unavailable.
+ *
+ * Set CROSS_ACCOUNT_COOLDOWN_HOURS=0 to let accounts overlap freely.
+ */
+async function loadCrossAccountRecent(account) {
+  const slug = requireAccount(account, 'loadCrossAccountRecent');
+  const hours = Number(process.env.CROSS_ACCOUNT_COOLDOWN_HOURS ?? 24);
+  if (!(hours > 0)) return new Set();
+
+  const db = getSupabase();
+  if (!db) return new Set();
+
+  const since = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+  const { data, error } = await db
+    .from('posted_urls')
+    .select('url')
+    .neq('account', slug)
+    .gte('posted_at', since);
+
+  if (error) {
+    // Same reasoning as loadHistory: reading this as "nothing to avoid" is how
+    // two handles end up posting the same headline an hour apart.
+    throw new Error(
+      `[News] could not read the cross-account cooldown for "${slug}" (${error.message}). ` +
+      'Refusing to continue rather than risk two accounts posting the same story.',
+    );
+  }
+  return new Set((data || []).map((r) => r.url));
+}
+
+/**
+ * Everything this account must not pick: its own history, plus whatever another
+ * account posted inside the cooldown window.
+ */
+async function loadExclusions(account) {
+  const [own, others] = await Promise.all([
+    loadHistory(account),
+    loadCrossAccountRecent(account),
+  ]);
+  for (const url of others) own.add(url);
+  return own;
+}
+
 async function markPosted(url, account) {
   const slug = requireAccount(account, 'markPosted');
   const db = getSupabase();
@@ -406,7 +455,7 @@ async function fetchNewsArticle(topic, exclude = [], account) {
   console.log(`[News] Total raw articles: ${allItems.length}`);
 
   // Filter, deduplicate, score
-  const history    = await loadHistory(account);
+  const history    = await loadExclusions(account);
   const excludeSet = new Set(exclude);
   const seen       = new Set();
 
@@ -494,7 +543,7 @@ async function fetchTrendingFallback(account) {
 
 async function fetchTrendingArticle(account) {
   console.log('[Trending] Fetching HN front page top stories...');
-  const history = await loadHistory(account);
+  const history = await loadExclusions(account);
 
   const topItems = await fetchHNTopStories();
 
@@ -596,7 +645,7 @@ async function fetchVisaArticle(account) {
   const allItems = results.flat();
   console.log(`[Visa] Total raw articles: ${allItems.length}`);
 
-  const history = await loadHistory(account);
+  const history = await loadExclusions(account);
   const seen = new Set();
   const THIS_YEAR = new Date().getFullYear();
 
@@ -689,7 +738,7 @@ async function fetchTrumpArticle(account) {
   const allItems = results.flat();
   console.log(`[Trump] Total raw articles: ${allItems.length}`);
 
-  const history = await loadHistory(account);
+  const history = await loadExclusions(account);
   const seen = new Set();
   const THIS_YEAR = new Date().getFullYear();
 
@@ -737,4 +786,4 @@ async function fetchTrumpArticle(account) {
 }
 
 
-module.exports = { loadHistory, fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, scoreVisaArticle, scoreTrumpArticle, hasRealContent, stripBoilerplate, markPosted };
+module.exports = { loadHistory, loadCrossAccountRecent, loadExclusions, fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, scoreVisaArticle, scoreTrumpArticle, hasRealContent, stripBoilerplate, markPosted };

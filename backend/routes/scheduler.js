@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { runPipeline, startScheduler, stopScheduler, getStatus, setLastResult } = require('../services/scheduler');
+const { runPipeline, runAllAccounts, startScheduler, stopScheduler, getStatus, setLastResult } = require('../services/scheduler');
+const { getAccount } = require('../services/accounts');
 
 router.get('/status', (req, res) => {
   res.json(getStatus());
@@ -49,7 +50,15 @@ router.post('/trigger', (req, res) => {
 
   res.status(202).json({ accepted: true, startedAt: new Date().toISOString() });
 
-  runPipeline({ trigger: 'external' })
+  // An account slug may be named here because this endpoint is gated on the
+  // trigger secret, unlike the human-facing routes. With none named it fans out
+  // to every active account, so one scheduled call still covers the whole slot.
+  const only = typeof req.body?.account === 'string' ? req.body.account : null;
+  const run = only
+    ? getAccount(only).then((account) => runPipeline({ account, trigger: 'external' }))
+    : runAllAccounts({ trigger: 'external' });
+
+  run
     .then((result) => {
       // A skipped run is not a failure — it means something already posted in
       // this slot. Record it so the caller can tell it apart from a timeout.

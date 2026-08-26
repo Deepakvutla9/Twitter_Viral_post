@@ -16,7 +16,7 @@ concurrency:
 jobs:
   post:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       BACKEND: https://twitter-viral-post.onrender.com
     steps:
@@ -43,35 +43,47 @@ jobs:
             exit 1
           fi
 
-      - name: Wait for the post to land
+      - name: Wait for every account to finish
         # The trigger is fire-and-forget (a full run can outlast the proxy
         # timeout), so confirm the outcome by polling status.
+        #
+        # This waits for lastFanOut.finishedAt, NOT for the first post. Watching
+        # lastResult would exit as soon as the first account published — and this
+        # polling is what keeps a free-tier instance awake, so leaving early would
+        # put it back to sleep with accounts still to run. That is the same shape
+        # as the failure that silently stopped posting for six weeks.
         run: |
           START="${{ steps.t.outputs.start }}"
-          for i in $(seq 1 24); do
+          for i in $(seq 1 60); do
             sleep 20
             curl -sS --max-time 60 "$BACKEND/api/scheduler/status" -o /tmp/status.json || continue
 
-            posted=$(jq -r '.lastResult.postedAt  // ""' /tmp/status.json)
-            failed=$(jq -r '.lastResult.failedAt  // ""' /tmp/status.json)
-            skipped=$(jq -r '.lastResult.skippedAt // ""' /tmp/status.json)
+            done_at=$(jq -r '.lastFanOut.finishedAt // ""' /tmp/status.json)
+            if [ -n "$done_at" ] && [ "$done_at" \> "$START" ]; then
+              jq -r '.lastFanOut.results[] | "  \(.account): \(.outcome) \(.reason // .postId // "")"' /tmp/status.json
+              posted=$(jq -r '.lastFanOut.posted // 0' /tmp/status.json)
+              failed=$(jq -r '.lastFanOut.failed // 0' /tmp/status.json)
+              echo "posted=$posted failed=$failed"
+              # One account failing is worth a red run even when another posted:
+              # a quietly dead handle otherwise looks identical to a healthy slot.
+              if [ "$failed" -gt 0 ]; then
+                echo "::error::$failed account(s) failed this slot."
+                exit 1
+              fi
+              exit 0
+            fi
 
-            if [ -n "$posted" ] && [ "$posted" \> "$START" ]; then
-              echo "Posted: $(jq -r '.lastResult.postId // "?"' /tmp/status.json)"
-              echo "Story:  $(jq -r '.lastResult.topic  // "?"' /tmp/status.json)"
-              exit 0
-            fi
-            if [ -n "$skipped" ] && [ "$skipped" \> "$START" ]; then
-              echo "::warning::Run skipped ($(jq -r '.lastResult.reason // "?"' /tmp/status.json)) — something already posted in this slot."
-              exit 0
-            fi
-            if [ -n "$failed" ] && [ "$failed" \> "$START" ]; then
+            # A single-account trigger never sets lastFanOut, so fall back to the
+            # per-run fields for that case.
+            posted_at=$(jq -r '.lastResult.postedAt // ""' /tmp/status.json)
+            failed_at=$(jq -r '.lastResult.failedAt // ""' /tmp/status.json)
+            if [ -n "$failed_at" ] && [ "$failed_at" \> "$START" ]; then
               echo "::error::Pipeline failed: $(jq -r '.lastResult.error // "?"' /tmp/status.json)"
               exit 1
             fi
-            echo "waiting... ($i/24)"
+            echo "waiting... ($i/60)"
           done
 
-          echo "::error::Timed out after 8 minutes with no result."
+          echo "::error::Timed out after 20 minutes with no completed fan-out."
           cat /tmp/status.json
           exit 1

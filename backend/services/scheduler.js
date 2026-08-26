@@ -3,7 +3,7 @@ const { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArti
 const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
-const { getAccount } = require('./accounts');
+const { getAccount, listActiveAccounts } = require('./accounts');
 
 let activeJob = null;
 
@@ -37,10 +37,16 @@ function slotPlan() {
  *
  * CONTENT_SOURCE=tech|visa|trump pins it for manual runs.
  */
-function pickSource(now = new Date()) {
+function pickSource(now = new Date(), account = null) {
   const forced = process.env.CONTENT_SOURCE;
   if (SOURCES.includes(forced)) return forced;
-  const plan = slotPlan();
+  // The account's own plan wins. Two accounts sharing one global SLOT_PLAN would
+  // draw from the same pool in the same slot, which is how two handles end up
+  // posting the same story on the same schedule.
+  const own = Array.isArray(account?.slotPlan)
+    ? account.slotPlan.filter((s) => SOURCES.includes(s))
+    : [];
+  const plan = own.length ? own : slotPlan();
   return plan[Math.floor(now.getUTCHours() / 6) % plan.length];
 }
 
@@ -60,6 +66,9 @@ let jobStatus = {
   lastResult: null,
   nextTopic: 'HN Trending',
   totalPosted: 0,
+  // Set by runAllAccounts. lastResult describes one account; this describes the
+  // whole slot, which is what an external caller has to wait for.
+  lastFanOut: null,
 };
 
 /**
@@ -68,8 +77,8 @@ let jobStatus = {
  * The guards are keyed by account slug rather than held as single values. They
  * exist to stop the external trigger and the in-process cron double-posting the
  * same account, which is a per-account question — one account being mid-run is
- * no reason to skip another. Fan-out does not exist yet, but a shared guard
- * would have silently serialised it into posting one account per slot.
+ * no reason to skip another. A shared guard would silently serialise the fan-out
+ * in runAllAccounts into posting one account per slot.
  */
 async function runPipeline({ force = false, account: given, slot = null, trigger = 'unknown' } = {}) {
   // Resolved before the guards, since which account this is decides which guard
@@ -93,7 +102,7 @@ async function runPipeline({ force = false, account: given, slot = null, trigger
   jobStatus.lastRun = new Date().toISOString();
 
   try {
-    const source = pickSource();
+    const source = pickSource(new Date(), account);
     console.log(`[Pipeline] Source for this run: ${source} (as ${account.handle}, trigger: ${trigger}${slot ? `, slot ${slot}` : ''})`);
 
     // Visa news falls back to the tech pool rather than failing the slot — a
@@ -161,6 +170,77 @@ async function runPipeline({ force = false, account: given, slot = null, trigger
   }
 }
 
+// Runs are sequential with a gap between them, never parallel. Groq's free tier
+// allows 8000 tokens per minute and one generation costs roughly 4000, so two
+// accounts firing together would rate-limit each other into the backoff path for
+// no gain. Sequential also keeps the image uploads and Graph API calls apart.
+const ACCOUNT_STAGGER_MS = Number(process.env.ACCOUNT_STAGGER_MS ?? 60000);
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * One slot, every active account.
+ *
+ * An account that throws must not take the rest of the slot down with it: a
+ * dead token on one handle is not a reason for the others to miss a post. Each
+ * result is collected either way, so the caller can tell "posted", "skipped by
+ * the guard" and "failed" apart instead of seeing one aggregate error.
+ */
+async function runAllAccounts({ slot = null, trigger = 'fan-out', force = false, stagger = ACCOUNT_STAGGER_MS } = {}) {
+  const accounts = await listActiveAccounts();
+  console.log(`[Fan-out] ${accounts.length} active account(s), ${stagger}ms apart`);
+
+  // Reported separately from lastResult, which only ever describes one account.
+  // The external trigger polls this to know the whole slot is done: watching
+  // lastResult, it would see the first account post and stop polling, and the
+  // polling is what keeps a free-tier instance awake for the accounts still to
+  // come. A sleeping instance finishes nothing.
+  jobStatus.lastFanOut = {
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    trigger,
+    accounts: accounts.length,
+    results: [],
+  };
+
+  const results = [];
+  for (let i = 0; i < accounts.length; i += 1) {
+    const account = accounts[i];
+    if (i > 0 && stagger > 0) await sleep(stagger);
+    try {
+      results.push(await runPipeline({ account, slot, trigger, force }));
+    } catch (err) {
+      console.error(`[Fan-out] ${account.slug} failed: ${err.message}`);
+      results.push({ success: false, account: account.slug, error: err.message });
+    }
+  }
+
+  const summary = {
+    accounts: accounts.length,
+    posted: results.filter((r) => r.success).length,
+    skipped: results.filter((r) => r.skipped).length,
+    failed: results.filter((r) => !r.success && !r.skipped).length,
+    results,
+  };
+
+  jobStatus.lastFanOut = {
+    ...jobStatus.lastFanOut,
+    finishedAt: new Date().toISOString(),
+    posted: summary.posted,
+    skipped: summary.skipped,
+    failed: summary.failed,
+    results: results.map((r) => ({
+      account: r.account,
+      outcome: r.success ? 'posted' : r.skipped ? 'skipped' : 'failed',
+      reason: r.reason || r.error || null,
+      postId: r.postId || null,
+    })),
+  };
+
+  console.log(`[Fan-out] ${summary.posted} posted, ${summary.skipped} skipped, ${summary.failed} failed`);
+  return summary;
+}
+
 function startScheduler(cronExpression) {
   if (activeJob) { activeJob.stop(); activeJob = null; }
 
@@ -169,7 +249,7 @@ function startScheduler(cronExpression) {
 
   activeJob = cron.schedule(cronExpression, async () => {
     try {
-      await runPipeline({ trigger: 'cron' });
+      await runAllAccounts({ trigger: 'cron' });
     } catch (err) {
       console.error('[Scheduler] Pipeline error:', err.message);
       jobStatus.lastResult = { success: false, error: err.message, failedAt: new Date().toISOString() };
@@ -200,4 +280,4 @@ function autoResume() {
   startScheduler(defaultCron);
 }
 
-module.exports = { runPipeline, startScheduler, stopScheduler, getStatus, setLastResult, autoResume, pickSource, slotPlan };
+module.exports = { runPipeline, runAllAccounts, startScheduler, stopScheduler, getStatus, setLastResult, autoResume, pickSource, slotPlan };
