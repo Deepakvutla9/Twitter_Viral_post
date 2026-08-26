@@ -48,7 +48,11 @@ test('an account without a model still uses the global default', async () => {
   assert.equal(lastPayload.model, 'global/default-model');
 });
 
-test('the account still reaches the prompt and the caption', async () => {
+test('the account still reaches generation end to end', async () => {
+  // The caption's own hashtag behaviour is covered in branding.test.js, where
+  // relevance can be controlled. Here it is enough that the account threads
+  // through and a caption comes back.
   const out = await generateOnce(ARTICLE, 'T', null, ACCOUNT({ hashtagExtra: ['#HouseTag'] }));
-  assert.match(out.caption, /#HouseTag/);
+  assert.match(lastPayload.messages[1].content, /#housetag/i, 'the tag reached the prompt');
+  assert.ok(out.caption.length > 0);
 });

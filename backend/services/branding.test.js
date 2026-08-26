@@ -126,41 +126,66 @@ test('account hashtags are suggested, not forced, and junk is dropped', () => {
 
 const { normalizeAndEvaluateCarousel } = require('./contentQuality');
 
-function publish(account, parsed = {}) {
+const AI_BODY = 'OpenAI released a new model today and the AI industry reacted strongly. '.repeat(4)
+  + '**A closing highlighted phrase**.';
+const OBIT_BODY = 'Tim Curry the actor has died aged 79 after a long career on stage and screen. '.repeat(3)
+  + '**A closing highlighted phrase**.';
+
+function publish(account, body = AI_BODY) {
   const model = {
     slides: [
       { type: 'hook', badge: 'NEWS', teaser: 'What happened? →' },
-      { type: 'detail', body: 'A '.repeat(40) + '**key phrase here now** and a closing statement.' },
+      { type: 'detail', body },
     ],
     caption: 'A hook sentence. What happens next?',
     imagePrompt: 'a scene',
-    ...parsed,
   };
-  return normalizeAndEvaluateCarousel(model, { title: 'A headline', category: 'tech' }, account);
+  return normalizeAndEvaluateCarousel(model, { title: body.slice(0, 60), category: 'tech' }, account);
 }
 
-test('account hashtags reach the published caption, not just the prompt', () => {
-  // buildCaption rebuilds the hashtag line from scratch, so anything not passed
-  // in here is discarded no matter what the model returned.
-  const { caption } = publish({ ...ACCOUNT, hashtagExtra: ['#SyntheticMinds', '#AIDaily'] });
-  assert.match(caption, /#SyntheticMinds/);
-  assert.match(caption, /#AIDaily/);
+const tagsOf = (caption) => caption.match(/#[A-Za-z0-9_]+/g) || [];
+
+test('a relevant account hashtag reaches the published caption', () => {
+  // buildCaption rebuilds the hashtag line from scratch, so a tag not passed in
+  // here is discarded no matter what the model returned.
+  const { caption } = publish({ ...ACCOUNT, hashtagExtra: ['#OpenAI'] });
+  assert.ok(tagsOf(caption).includes('#openai'), caption);
+});
+
+test('an unrelated account hashtag never reaches the caption', () => {
+  // #visa on an obituary is worse than generic filler: filler is merely
+  // uninformative, a themed tag is a wrong claim about the post.
+  const { caption } = publish({ ...ACCOUNT, hashtagExtra: ['#Visa', '#H1B'] }, OBIT_BODY);
+  const tags = tagsOf(caption);
+  assert.ok(!tags.includes('#visa'), caption);
+  assert.ok(!tags.includes('#h1b'), caption);
+  assert.equal(tags.length, 5);
+});
+
+test('case variants collapse to one tag', () => {
+  // Instagram treats #AI and #ai as the same tag; the pool already holds #ai.
+  const { caption } = publish({ ...ACCOUNT, hashtagExtra: ['#AI'] });
+  const lower = tagsOf(caption).map((t) => t.toLowerCase());
+  assert.equal(new Set(lower).size, lower.length, `duplicate tag in: ${caption}`);
+  assert.equal(lower.filter((t) => t === '#ai').length, 1);
 });
 
 test('account hashtags cannot crowd out the whole caption', () => {
-  const { caption } = publish({
-    ...ACCOUNT,
-    hashtagExtra: ['#One', '#Two', '#Three', '#Four', '#Five', '#Six'],
-  });
-  const tags = caption.match(/#[A-Za-z0-9_]+/g) || [];
+  // These three are all relevant to the story and none of them exist in the
+  // pool, so any that appear can only have come from the account. Using pool
+  // tags here would prove nothing: the matcher would have picked them anyway.
+  const ONLY_FROM_ACCOUNT = ['#openai', '#model', '#industry'];
+  const { caption } = publish({ ...ACCOUNT, hashtagExtra: ONLY_FROM_ACCOUNT });
+
+  const tags = tagsOf(caption);
   assert.equal(tags.length, 5, 'still exactly five hashtags');
-  const mine = tags.filter((t) => ['#One', '#Two', '#Three', '#Four', '#Five', '#Six'].includes(t));
-  assert.equal(mine.length, 2, 'capped so per-post relevance still fills the rest');
+  const mine = tags.filter((t) => ONLY_FROM_ACCOUNT.includes(t));
+  assert.ok(mine.length >= 1, `at least one relevant account tag ships: ${caption}`);
+  assert.ok(mine.length <= 2, `capped at two, got ${mine.length}: ${caption}`);
 });
 
 test('an account with no hashtags is unaffected', () => {
-  const { caption } = publish(ACCOUNT);
-  assert.equal((caption.match(/#[A-Za-z0-9_]+/g) || []).length, 5);
+  assert.equal(tagsOf(publish(ACCOUNT).caption).length, 5);
 });
 
 // ── the SVG has to actually parse ───────────────────────────────────────────

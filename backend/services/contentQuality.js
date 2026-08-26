@@ -354,10 +354,12 @@ function normalizeAccountTags(extra) {
   for (const raw of extra) {
     const tag = String(raw || '').trim();
     if (!/^#?[A-Za-z0-9]+$/.test(tag)) continue;
-    const withHash = tag.startsWith('#') ? tag : `#${tag}`;
-    const key = withHash.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
+    // Lowercased, like every tag in the pools. Instagram treats #AI and #ai as
+    // one tag, and the relevance matcher scores against lowercase copy — so a
+    // tag written "#OpenAI" would otherwise score zero and never ship at all.
+    const withHash = (tag.startsWith('#') ? tag : `#${tag}`).toLowerCase();
+    if (seen.has(withHash)) continue;
+    seen.add(withHash);
     out.push(withHash);
   }
   return out;
@@ -375,35 +377,43 @@ function pickHashtags(count = 5, category, text, extra = []) {
     ...shuffle(pool.filter((tag) => !anchors.includes(tag) && !MATCH_ONLY.has(tag))),
   ];
 
-  // Account tags lead, relevant ones first, so a tag that the story actually
-  // talks about is never displaced by one that merely belongs to the account.
+  // Account tags are a relevance-filtered candidate pool, not permanent brand
+  // tags. An account tag ships only when the post actually talks about it:
+  // #visa on an obituary is worse than generic filler, because filler is merely
+  // uninformative while a themed tag is a wrong claim about the post. Permanent
+  // always-on tags would be a separate, explicit field — this one is not it.
   const accountTags = normalizeAccountTags(extra);
-  const leading = [
-    ...accountTags.filter((tag) => tagScore(tag, index) > 0),
-    ...accountTags.filter((tag) => tagScore(tag, index) === 0),
-  ].slice(0, Math.min(MAX_ACCOUNT_TAGS, count));
+  const leading = index.flat
+    ? accountTags
+      .filter((tag) => tagScore(tag, index) > 0)
+      .slice(0, Math.min(MAX_ACCOUNT_TAGS, count))
+    : [];
+
+  // Instagram treats #AI and #ai as one tag, so every comparison below is
+  // case-insensitive. Matching on the literal string publishes both.
+  const chosen = [];
+  const taken = new Set();
+  const add = (tag) => {
+    const key = tag.toLowerCase();
+    if (taken.has(key) || chosen.length >= count) return;
+    taken.add(key);
+    chosen.push(tag);
+  };
+
+  leading.forEach(add);
 
   if (!index.flat) {
-    const rest = shuffle(filler).filter((tag) => !leading.includes(tag));
-    return [...leading, ...rest].slice(0, count);
+    shuffle(filler).forEach(add);
+    return chosen;
   }
 
-  const matched = shuffle(pool)
+  shuffle(pool)
     .map((tag) => ({ tag, score: tagScore(tag, index) }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, count)
-    .map((entry) => entry.tag);
+    .forEach((entry) => add(entry.tag));
 
-  const chosen = [...leading, ...matched.filter((t) => !leading.includes(t))].slice(0, count);
-  const taken = new Set(chosen);
-  for (const tag of filler) {
-    if (chosen.length >= count) break;
-    if (!taken.has(tag)) {
-      chosen.push(tag);
-      taken.add(tag);
-    }
-  }
+  filler.forEach(add);
   return chosen;
 }
 
