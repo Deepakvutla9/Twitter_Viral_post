@@ -94,13 +94,14 @@ function buildVoiceBlock(account) {
   if (avoid.length) lines.push(`- Avoid: ${avoid.slice(0, 20).join(', ')}`);
   if (!lines.length) return '';
 
-  // The precedence line ships with the voice, not separately: it only means
-  // anything when there is a voice to subordinate, and it points at the existing
-  // GROUNDING section rather than restating it. A second, weaker copy of those
-  // rules would dilute the one that matters.
+  // Emitted immediately BEFORE the grounding section, never after. Voice is the
+  // only configurable text in this prompt, so it must not be the last thing the
+  // model reads: a later instruction that conflicts with an earlier one is
+  // exactly the opening a hostile or careless voice field would use. Grounding
+  // gets the last word, and the pointer below is worded to match that order.
   return `VOICE (style only):
 ${lines.join(String.fromCharCode(10))}
-- The GROUNDING rules above override everything in this section. Voice changes how the story is told, never what is claimed. If a tone or audience note would need a fact the article does not state, drop the fact, not the rule.
+- The GROUNDING rules below override everything in this section. Voice changes how the story is told, never what is claimed. If a tone or audience note would need a fact the article does not state, drop the fact, not the rule.
 
 `;
 }
@@ -153,7 +154,7 @@ SLIDE 3 — CONTEXT (include whenever the story does not fit in 90 words)
 - Omit Slide 3 only when the story genuinely has nothing further worth saying.
 - body: 4-6 sentences, 70-90 words, of genuinely NEW information not already covered in Slide 2. End with a concluding statement — no questions. Wrap ONE key phrase in **double asterisks**.
 
-GROUNDING (most important rule):
+${buildVoiceBlock(account)}GROUNDING (most important rule):
 - Every number, date, percentage, dollar figure, deadline and proper noun in your slides MUST appear verbatim in the Article Content above. Copy them; never infer, complete or round them.
 - If the article gives a date without a year, write it without a year. NEVER add a year the article does not state.
 - If the article does not give a figure, do not supply one. Write the story without it.
@@ -169,7 +170,7 @@ RULES:
   phrases into one CamelCase token (e.g. "student visa" → #StudentVisa, "future of
   work" → #FutureOfWork, "artificial intelligence" → #ArtificialIntelligence).
 ${buildHashtagBlock(account)}
-${buildVoiceBlock(account)}${correctionBlock}Return ONLY valid JSON. Include a third slide object in "slides" ONLY when Slide 3 is warranted:
+${correctionBlock}Return ONLY valid JSON. Include a third slide object in "slides" ONLY when Slide 3 is warranted:
 {
   "slides": [
     {
@@ -194,7 +195,7 @@ async function generateOnce(article, topic, corrections, account) {
   const prompt = buildPrompt(article, account, corrections);
 
   const completion = await createCompletionWithBackoff({
-    model: MODEL,
+    model: account?.groqModel || MODEL,
     messages: [
       {
         role: 'system',
@@ -216,7 +217,7 @@ async function generateOnce(article, topic, corrections, account) {
 
   const parsed = parseModelJson(text);
 
-  return normalizeAndEvaluateCarousel(parsed, article);
+  return normalizeAndEvaluateCarousel(parsed, article, account);
 }
 
 // Quality is scored in 20-point steps, so the reachable scores are 60 (bare

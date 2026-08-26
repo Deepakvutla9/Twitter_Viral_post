@@ -42,8 +42,15 @@ function brandFor(account) {
 
   // The badge pill used to be a fixed 290px around a hard-coded name. Any other
   // account name would have run straight out of it.
-  const name = esc(String(account.displayName || account.slug).toUpperCase()).slice(0, 40);
-  const pillW = Math.min(640, Math.max(200, name.length * 13 + 56));
+  //
+  // Truncate the raw text first, then escape. Escaping first and cutting after
+  // can slice through an entity — a name ending near "&" becomes "&am", which is
+  // malformed XML and fails the whole render in Sharp rather than just looking
+  // wrong. The width is measured on the raw text for the same reason: "&amp;" is
+  // one glyph, not five.
+  const rawName = String(account.displayName || account.slug).toUpperCase().slice(0, 40);
+  const name = esc(rawName);
+  const pillW = Math.min(640, Math.max(200, rawName.length * 13 + 56));
 
   return { accent, name, pillW, handle: esc(account.handle || `@${account.slug}`) };
 }
