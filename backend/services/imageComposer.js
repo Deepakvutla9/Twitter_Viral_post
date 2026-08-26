@@ -9,7 +9,8 @@ if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 const W = 1080, H = 1080;
 const PAD = 60;
 
-// Brand colors — cyan accent, NOT yellow (differentiate from competitors)
+// Brand colors — cyan accent, NOT yellow (differentiate from competitors).
+// These are the fallback for an account that has not set its own.
 const ACCENT  = '#00e5ff';   // cyan highlight
 const WHITE   = '#ffffff';
 const BLACK   = '#000000';
@@ -20,6 +21,31 @@ function esc(s) {
   return String(s || '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Everything below is interpolated into raw SVG, so account-supplied branding is
+// escaped and the colour is pattern-checked here as well as in accounts.js and
+// in a database CHECK constraint. Three layers because an unescaped value here
+// is not a broken layout, it is arbitrary markup in the rendered image.
+const ACCENT_RE = /^#[0-9a-fA-F]{6}$/;
+
+function brandFor(account) {
+  if (!account?.slug) {
+    throw new Error('[ImageComposer] composeSlideImages requires an account (see services/accounts.js)');
+  }
+
+  let accent = account.accent;
+  if (!ACCENT_RE.test(String(accent || ''))) {
+    console.warn(`[ImageComposer] account "${account.slug}" has an unusable accent — falling back to ${ACCENT}`);
+    accent = ACCENT;
+  }
+
+  // The badge pill used to be a fixed 290px around a hard-coded name. Any other
+  // account name would have run straight out of it.
+  const name = esc(String(account.displayName || account.slug).toUpperCase()).slice(0, 40);
+  const pillW = Math.min(640, Math.max(200, name.length * 13 + 56));
+
+  return { accent, name, pillW, handle: esc(account.handle || `@${account.slug}`) };
 }
 
 // ── AUTO-HIGHLIGHT key words in the article title ─────────────────────────────
@@ -128,32 +154,32 @@ function renderLinesSimple(lines, x, startY, lineH, fontSize, normalFill, hlFill
 
 // ── SHARED ELEMENTS ───────────────────────────────────────────────────────────
 
-function logoSvg() {
-  // Top-left: glass pill badge — page name
+function logoSvg(brand) {
+  // Top-left: glass pill badge — page name, sized to the name it holds
   return `
-    <rect x="${PAD}" y="44" width="290" height="52" rx="26"
+    <rect x="${PAD}" y="44" width="${brand.pillW}" height="52" rx="26"
       fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
-    <text x="${PAD + 145}" y="79"
+    <text x="${PAD + brand.pillW / 2}" y="79"
       font-family="${FONT}" font-size="20" font-weight="900"
-      fill="${WHITE}" text-anchor="middle" letter-spacing="2">SYNTHETIC MINDS</text>`;
+      fill="${WHITE}" text-anchor="middle" letter-spacing="2">${brand.name}</text>`;
 }
 
-function socialBar() {
+function socialBar(brand) {
   // Bottom bar: handle left, CTA right
   return `
     <rect x="0" y="${H - 58}" width="${W}" height="58" fill="rgba(0,0,0,0.7)"/>
     <rect x="0" y="${H - 58}" width="${W}" height="1" fill="rgba(255,255,255,0.12)"/>
     <text x="${PAD}" y="${H - 20}"
       font-family="${FONT_B}" font-size="22" font-weight="600"
-      fill="rgba(255,255,255,0.55)" letter-spacing="1">@shadesofirony</text>
+      fill="rgba(255,255,255,0.55)" letter-spacing="1">${brand.handle}</text>
     <text x="${W - PAD}" y="${H - 20}"
       font-family="${FONT_B}" font-size="22" font-weight="600"
-      fill="${ACCENT}" text-anchor="end" letter-spacing="1">Follow for more →</text>`;
+      fill="${brand.accent}" text-anchor="end" letter-spacing="1">Follow for more →</text>`;
 }
 
 // ── SLIDE 1: HOOK ─────────────────────────────────────────────────────────────
 // Full photo, heavy bottom gradient, badge pill, huge headline (no teaser)
-function buildHookSlide(slide, imgBase64) {
+function buildHookSlide(slide, imgBase64, brand) {
   const rawTitle  = autoHighlight(slide.headline || '');
   const badge     = (slide.badge || 'NEWS').toUpperCase();
 
@@ -192,13 +218,13 @@ function buildHookSlide(slide, imgBase64) {
   const BADGE_W = badge.length * 16 + 48;
   const badgeSvg = `
     <rect x="${PAD}" y="${BADGE_Y}" width="${BADGE_W}" height="${BADGE_H}" rx="${BADGE_H / 2}"
-      fill="${ACCENT}"/>
+      fill="${brand.accent}"/>
     <text x="${PAD + BADGE_W / 2}" y="${BADGE_Y + BADGE_H * 0.65}"
       font-family="${FONT}" font-size="22" font-weight="900"
       fill="${BLACK}" text-anchor="middle" letter-spacing="3">${esc(badge)}</text>`;
 
   // Headline — fills bottom area above social bar, no teaser
-  const headSvg = renderLinesSimple(headLines.slice(0, maxHeadLines), PAD, HEAD_Y, HEAD_LH, HEAD_SIZE, WHITE, ACCENT);
+  const headSvg = renderLinesSimple(headLines.slice(0, maxHeadLines), PAD, HEAD_Y, HEAD_LH, HEAD_SIZE, WHITE, brand.accent);
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -216,16 +242,16 @@ function buildHookSlide(slide, imgBase64) {
   </defs>
 
   ${bg}
-  ${logoSvg()}
+  ${logoSvg(brand)}
   ${badgeSvg}
   ${headSvg}
-  ${socialBar()}
+  ${socialBar(brand)}
 </svg>`;
 }
 
 // ── SLIDE 2: CONTEXT ──────────────────────────────────────────────────────────
 // Full photo, heavy gradient, large body text with cyan highlights, max context
-function buildContextSlide(slide, imgBase64, slideNum, totalSlides) {
+function buildContextSlide(slide, imgBase64, slideNum, totalSlides, brand) {
   const rawBody = slide.body || '';
 
   const bg = imgBase64
@@ -278,7 +304,7 @@ function buildContextSlide(slide, imgBase64, slideNum, totalSlides) {
   const blockHeight  = bodyLines.length * BODY_LH;
   const BODY_Y       = Math.round((AVAIL_TOP + AVAIL_BOTTOM - blockHeight) / 2) + BODY_LH;
 
-  const bodySvg = renderLinesSimple(bodyLines, PAD, BODY_Y, BODY_LH, BODY_SIZE, WHITE, ACCENT);
+  const bodySvg = renderLinesSimple(bodyLines, PAD, BODY_Y, BODY_LH, BODY_SIZE, WHITE, brand.accent);
 
   return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -292,7 +318,7 @@ function buildContextSlide(slide, imgBase64, slideNum, totalSlides) {
 
   ${bg}
   ${bodySvg}
-  ${socialBar()}
+  ${socialBar(brand)}
 </svg>`;
 }
 
@@ -403,7 +429,11 @@ async function generateHFImage(prompt) {
 }
 
 // ── EXPORT ────────────────────────────────────────────────────────────────────
-async function composeSlideImages(slides, ogImage = null, imagePrompt = null, customSlide1Base64 = null) {
+// Options object rather than a fifth positional argument: the account is not
+// optional, and a caller that forgets it should fail loudly rather than render
+// someone else's branding.
+async function composeSlideImages(slides, { ogImage = null, imagePrompt = null, customSlide1Base64 = null, account } = {}) {
+  const brand     = brandFor(account);
   const timestamp = Date.now();
   const results   = [];
 
@@ -436,9 +466,9 @@ async function composeSlideImages(slides, ogImage = null, imagePrompt = null, cu
     let svg;
 
     if (slide.type === 'hook') {
-      svg = buildHookSlide(slide, img);
+      svg = buildHookSlide(slide, img, brand);
     } else {
-      svg = buildContextSlide(slide, img, i + 1, total);
+      svg = buildContextSlide(slide, img, i + 1, total, brand);
     }
 
     const filename = `slide_${timestamp}_${i}.jpg`;
@@ -459,4 +489,9 @@ function cleanOldImages() {
   });
 }
 
-module.exports = { composeSlideImages, cleanOldImages, fitBody, wrapHighlighted };
+module.exports = {
+  composeSlideImages, cleanOldImages, fitBody, wrapHighlighted,
+  // Exported for tests: branding is interpolated into raw SVG, so it is asserted
+  // on directly rather than inferred from a rendered PNG.
+  brandFor, buildSocialBar: (account) => socialBar(brandFor(account)),
+};

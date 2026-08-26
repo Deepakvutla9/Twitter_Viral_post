@@ -49,8 +49,9 @@ function pickSource(now = new Date()) {
 // fires, both would run and we'd double-post. This guard keeps only the first
 // one in any 30-minute window; manual runs from the UI pass force:true.
 const MIN_GAP_MS = 30 * 60 * 1000;
-let lastStartedAt = 0;
-let inFlight = false;
+// Keyed by account slug — see runPipeline.
+const lastStartedAt = new Map();
+const inFlight = new Set();
 
 let jobStatus = {
   running: false,
@@ -61,29 +62,39 @@ let jobStatus = {
   totalPosted: 0,
 };
 
-async function runPipeline({ force = false } = {}) {
-  if (inFlight) {
-    console.log('[Pipeline] Skipped — a run is already in flight');
-    return { success: false, skipped: true, reason: 'in-flight' };
+/**
+ * One run, for one account.
+ *
+ * The guards are keyed by account slug rather than held as single values. They
+ * exist to stop the external trigger and the in-process cron double-posting the
+ * same account, which is a per-account question — one account being mid-run is
+ * no reason to skip another. Fan-out does not exist yet, but a shared guard
+ * would have silently serialised it into posting one account per slot.
+ */
+async function runPipeline({ force = false, account: given, slot = null, trigger = 'unknown' } = {}) {
+  // Resolved before the guards, since which account this is decides which guard
+  // applies. A broken account also fails here, before any scraping or model call.
+  const account = given || await getAccount();
+  const slug = account.slug;
+
+  if (inFlight.has(slug)) {
+    console.log(`[Pipeline] Skipped ${slug} — a run is already in flight`);
+    return { success: false, skipped: true, reason: 'in-flight', account: slug };
   }
-  if (!force && Date.now() - lastStartedAt < MIN_GAP_MS) {
-    const mins = Math.round((Date.now() - lastStartedAt) / 60000);
-    console.log(`[Pipeline] Skipped — last run started ${mins}m ago (double-fire guard)`);
-    return { success: false, skipped: true, reason: 'debounced' };
+  const startedAt = lastStartedAt.get(slug) || 0;
+  if (!force && Date.now() - startedAt < MIN_GAP_MS) {
+    const mins = Math.round((Date.now() - startedAt) / 60000);
+    console.log(`[Pipeline] Skipped ${slug} — last run started ${mins}m ago (double-fire guard)`);
+    return { success: false, skipped: true, reason: 'debounced', account: slug };
   }
 
-  lastStartedAt = Date.now();
-  inFlight = true;
+  lastStartedAt.set(slug, Date.now());
+  inFlight.add(slug);
   jobStatus.lastRun = new Date().toISOString();
 
   try {
-    // Resolved up front so a broken account fails before any scraping, model
-    // call or image render happens. Fan-out across accounts comes later; this
-    // run still targets the default one.
-    const account = await getAccount();
-
     const source = pickSource();
-    console.log(`[Pipeline] Source for this run: ${source} (as ${account.handle})`);
+    console.log(`[Pipeline] Source for this run: ${source} (as ${account.handle}, trigger: ${trigger}${slot ? `, slot ${slot}` : ''})`);
 
     // Visa news falls back to the tech pool rather than failing the slot — a
     // missed post is worse than an off-topic one, and the feeds occasionally
@@ -105,7 +116,7 @@ async function runPipeline({ force = false } = {}) {
     }
     console.log(`[Pipeline] Selected: "${article.title}" (${article.points} pts, ${article.category || 'tech'})`);
 
-    const { slides, caption, imagePrompt, quality } = await generateCarouselSlides(article, article.title);
+    const { slides, caption, imagePrompt, quality } = await generateCarouselSlides(article, article.title, account);
     const words = quality?.checks?.bodyWordCount ?? 0;
     console.log(`[Pipeline] Generated ${slides.length} slides — quality ${quality?.score ?? '?'}/100, ${words}-word context slide`);
 
@@ -122,7 +133,11 @@ async function runPipeline({ force = false } = {}) {
 
     // Pass imagePrompt so slide 2 gets an AI background (HF → Pollinations),
     // falling back to the darkened article photo — matches the generate route.
-    const images = await composeSlideImages(slides, article.ogImage || null, imagePrompt || null);
+    const images = await composeSlideImages(slides, {
+      ogImage: article.ogImage || null,
+      imagePrompt: imagePrompt || null,
+      account,
+    });
     const imagePaths = images.map((i) => i.filepath);
 
     const postId = await postCarousel(imagePaths, caption, account);
@@ -135,13 +150,14 @@ async function runPipeline({ force = false } = {}) {
       topic: article.title,
       article: article.title,
       postedAt: new Date().toISOString(),
+      account: slug,
     };
     jobStatus.lastResult = result;
 
     console.log(`[Pipeline] Posted: ${postId} (total: ${jobStatus.totalPosted})`);
     return result;
   } finally {
-    inFlight = false;
+    inFlight.delete(slug);
   }
 }
 
@@ -153,7 +169,7 @@ function startScheduler(cronExpression) {
 
   activeJob = cron.schedule(cronExpression, async () => {
     try {
-      await runPipeline();
+      await runPipeline({ trigger: 'cron' });
     } catch (err) {
       console.error('[Scheduler] Pipeline error:', err.message);
       jobStatus.lastResult = { success: false, error: err.message, failedAt: new Date().toISOString() };

@@ -3,6 +3,7 @@ const multer   = require('multer');
 const sharp    = require('sharp');
 const router   = express.Router();
 const { generateCarouselSlides } = require('../services/gemini');
+const { getAccount } = require('../services/accounts');
 const { composeSlideImages }     = require('../services/imageComposer');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -21,7 +22,8 @@ router.post('/', upload.single('image'), async (req, res) => {
       url: '',
     };
 
-    const { slides, caption, imagePrompt, quality } = await generateCarouselSlides(article, title);
+    const account = await getAccount();
+    const { slides, caption, imagePrompt, quality } = await generateCarouselSlides(article, title, account);
 
     // If an image was uploaded, process it to base64 for slide 1
     let customImageBase64 = null;
@@ -33,7 +35,11 @@ router.post('/', upload.single('image'), async (req, res) => {
       customImageBase64 = buf.toString('base64');
     }
 
-    const images    = await composeSlideImages(slides, null, imagePrompt, customImageBase64);
+    const images    = await composeSlideImages(slides, {
+      imagePrompt,
+      customSlide1Base64: customImageBase64,
+      account,
+    });
     const imageUrls = images.map((img) => `/temp/${img.filename}`);
 
     res.json({ slides, caption, imageUrls, imagePaths: images.map((i) => i.filepath), quality });

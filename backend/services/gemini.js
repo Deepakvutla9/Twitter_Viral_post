@@ -67,7 +67,60 @@ async function createCompletionWithBackoff(payload) {
   throw new Error('unreachable');
 }
 
-async function generateOnce(article, topic, corrections) {
+// Account-supplied text goes into a prompt, so it is flattened to a single line
+// and capped. A voice field is a style note, not a place to add instructions.
+function sanitizeVoiceText(s, max = 240) {
+  return String(s || '')
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+/**
+ * Style guidance only.
+ *
+ * Everything here changes how the story is told. Nothing here may change what
+ * is true, and the block says so itself rather than leaving it implied.
+ * accounts.js separately rejects a voice object carrying grounding, facts,
+ * rules or prompt keys, so this cannot be widened from configuration.
+ */
+function buildVoiceBlock(account) {
+  const v = account?.voice || {};
+  const lines = [];
+  if (v.tone) lines.push(`- Tone: ${sanitizeVoiceText(v.tone)}`);
+  if (v.audience) lines.push(`- Written for: ${sanitizeVoiceText(v.audience)}`);
+  const avoid = Array.isArray(v.avoid) ? v.avoid.map((a) => sanitizeVoiceText(a, 60)).filter(Boolean) : [];
+  if (avoid.length) lines.push(`- Avoid: ${avoid.slice(0, 20).join(', ')}`);
+  if (!lines.length) return '';
+
+  // The precedence line ships with the voice, not separately: it only means
+  // anything when there is a voice to subordinate, and it points at the existing
+  // GROUNDING section rather than restating it. A second, weaker copy of those
+  // rules would dilute the one that matters.
+  return `VOICE (style only):
+${lines.join(String.fromCharCode(10))}
+- The GROUNDING rules above override everything in this section. Voice changes how the story is told, never what is claimed. If a tone or audience note would need a fact the article does not state, drop the fact, not the rule.
+
+`;
+}
+
+function buildHashtagBlock(account) {
+  const extra = Array.isArray(account?.hashtagExtra) ? account.hashtagExtra : [];
+  const clean = extra
+    .map((h) => sanitizeVoiceText(h, 40))
+    .filter((h) => /^#?[A-Za-z0-9]+$/.test(h))
+    .map((h) => (h.startsWith('#') ? h : `#${h}`))
+    .slice(0, 5);
+  if (!clean.length) return '';
+  return `- Prefer these account hashtags where they genuinely fit the story: ${clean.join(', ')}. Do not force one that does not fit.
+`;
+}
+
+// Extracted so the prompt is testable on its own. What the model is told is the
+// safety-critical part of this file -- asserting on it should not require a
+// network call.
+function buildPrompt(article, account, corrections) {
   // Feeding the previous attempt's failures back in is what makes the retry
   // worth doing -- a bare re-roll at the same temperature tends to reproduce
   // the same too-short body.
@@ -115,8 +168,8 @@ RULES:
 - hashtags: EXACTLY 5. Each MUST be a SINGLE word with NO spaces — merge multi-word
   phrases into one CamelCase token (e.g. "student visa" → #StudentVisa, "future of
   work" → #FutureOfWork, "artificial intelligence" → #ArtificialIntelligence).
-
-${correctionBlock}Return ONLY valid JSON. Include a third slide object in "slides" ONLY when Slide 3 is warranted:
+${buildHashtagBlock(account)}
+${buildVoiceBlock(account)}${correctionBlock}Return ONLY valid JSON. Include a third slide object in "slides" ONLY when Slide 3 is warranted:
 {
   "slides": [
     {
@@ -133,6 +186,12 @@ ${correctionBlock}Return ONLY valid JSON. Include a third slide object in "slide
   "caption": "1-2 hook sentences ending with a provocative question. NO hashtags here.",
   "hashtags": ["#StudentVisa", "#FutureOfWork", "#ArtificialIntelligence", "#TechNews", "#AI"]
 }`;
+
+  return prompt;
+}
+
+async function generateOnce(article, topic, corrections, account) {
+  const prompt = buildPrompt(article, account, corrections);
 
   const completion = await createCompletionWithBackoff({
     model: MODEL,
@@ -173,14 +232,14 @@ const MAX_ATTEMPTS = Number(process.env.MAX_GENERATION_ATTEMPTS || 3);
  * result is regenerated with its own warnings fed back as corrections, and the
  * best attempt wins if none clear the bar.
  */
-async function generateCarouselSlides(article, topic) {
+async function generateCarouselSlides(article, topic, account) {
   let best = null;
   let corrections = null;
   let lastError = null;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     let result;
     try {
-      result = await generateOnce(article, topic, corrections);
+      result = await generateOnce(article, topic, corrections, account);
     } catch (err) {
       // A single bad generation must not lose the posting slot. Groq
       // occasionally returns 400 json_validate_failed in JSON mode, which is a
@@ -205,4 +264,7 @@ async function generateCarouselSlides(article, topic) {
   return best;
 }
 
-module.exports = { generateCarouselSlides, generateOnce, parseModelJson };
+module.exports = {
+  generateCarouselSlides, generateOnce, parseModelJson,
+  buildPrompt, buildVoiceBlock, buildHashtagBlock,
+};

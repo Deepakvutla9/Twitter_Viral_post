@@ -20,7 +20,7 @@ router.post('/stop', (req, res) => {
 
 router.post('/run', async (req, res) => {
   try {
-    const result = await runPipeline({ force: true });
+    const result = await runPipeline({ force: true, trigger: 'manual' });
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -49,7 +49,7 @@ router.post('/trigger', (req, res) => {
 
   res.status(202).json({ accepted: true, startedAt: new Date().toISOString() });
 
-  runPipeline()
+  runPipeline({ trigger: 'external' })
     .then((result) => {
       // A skipped run is not a failure — it means something already posted in
       // this slot. Record it so the caller can tell it apart from a timeout.
