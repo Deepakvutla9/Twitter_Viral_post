@@ -95,13 +95,13 @@ async function runPipeline({ force = false } = {}) {
     let article;
     if (FETCHERS[source]) {
       try {
-        article = await FETCHERS[source]();
+        article = await FETCHERS[source](account);
       } catch (err) {
         console.warn(`[Pipeline] ${source} pool empty (${err.message}) — falling back to tech.`);
-        article = await fetchTrendingArticle();
+        article = await fetchTrendingArticle(account);
       }
     } else {
-      article = await fetchTrendingArticle();
+      article = await fetchTrendingArticle(account);
     }
     console.log(`[Pipeline] Selected: "${article.title}" (${article.points} pts, ${article.category || 'tech'})`);
 
@@ -126,7 +126,7 @@ async function runPipeline({ force = false } = {}) {
     const imagePaths = images.map((i) => i.filepath);
 
     const postId = await postCarousel(imagePaths, caption, account);
-    await markPosted(article.url);
+    await markPosted(article.url, account);
     jobStatus.totalPosted++;
 
     const result = {

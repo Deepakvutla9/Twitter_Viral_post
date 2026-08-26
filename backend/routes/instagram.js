@@ -16,11 +16,12 @@ router.post('/carousel', async (req, res) => {
   if (!caption) return res.status(400).json({ error: 'caption is required' });
 
   try {
-    const postId = await postCarousel(imagePaths, caption, await account());
+    const acct = await account();
+    const postId = await postCarousel(imagePaths, caption, acct);
     // Save URL to Supabase so it won't be posted again
     console.log(`[Route] articleUrl received: ${articleUrl || 'NONE'}`);
     if (articleUrl) {
-      await markPosted(articleUrl);
+      await markPosted(articleUrl, acct);
     } else {
       console.log('[Route] No articleUrl passed — skipping markPosted');
     }
