@@ -177,3 +177,54 @@ test('an unreadable trigger schedule proves nothing either way', () => {
   assert.equal(out.exhaustive, false);
   assert.equal(isReachable('0 9 * * *', { triggerCron: 'nonsense', now: at('2026-03-15T00:00:00Z') }), true);
 });
+
+const { requiredHorizonDays } = require('./cronMatch');
+
+test('a weekday trigger and a calendar account need the Gregorian cycle', () => {
+  // "29 February" and "a Monday" only realign on the 400-year cycle. A four-year
+  // search that finds nothing has proved nothing, so the horizon has to depend
+  // on whether the two calendars interact at all.
+  const leap = parseCron('0 0 29 2 *');
+  const monday = parseCron('0 0 * * 1');
+  const sixHourly = parseCron('0 */6 * * *');
+  const daily = parseCron('0 9 * * *');
+
+  assert.equal(requiredHorizonDays(leap, [monday]), 146097, 'weekday x calendar');
+  assert.equal(requiredHorizonDays(leap, [sixHourly]), 1465, 'calendar only');
+  assert.equal(requiredHorizonDays(daily, [sixHourly]), 1465, 'neither');
+  assert.equal(requiredHorizonDays(daily, [monday]), 1465, 'weekday only');
+});
+
+test('a leap-day account on a weekly trigger is found, not condemned', () => {
+  // Monday 29 February 2044 satisfies both. A four-year horizon reported this
+  // as exhaustively unreachable, which was a false claim rather than a slow one.
+  const out = searchReachability('0 0 29 2 *', {
+    triggerCron: '0 0 * * 1',
+    windowMinutes: 30,
+    now: at('2026-03-15T00:00:00Z'),
+  });
+  assert.deepEqual(out, { reachable: true, exhaustive: true });
+});
+
+test('a genuinely impossible weekday-and-calendar pair is still proven', () => {
+  // 09:00 can never coincide with a midnight-Monday trigger, and 30 February
+  // does not exist. Both are real negatives, and the search says so.
+  const opts = { triggerCron: '0 0 * * 1', windowMinutes: 30, now: at('2026-03-15T00:00:00Z') };
+  assert.deepEqual(searchReachability('0 9 29 2 *', opts), { reachable: false, exhaustive: true });
+  assert.deepEqual(searchReachability('0 0 30 2 *', opts), { reachable: false, exhaustive: true });
+});
+
+test('a dense trigger over the long horizon reports unproven, not unreachable', () => {
+  // Mondays every five minutes across four centuries exceeds the budget. That
+  // is a search that did not finish, not an account that cannot post.
+  const out = searchReachability('0 0 29 2 *', {
+    triggerCron: '*/5 * * * 1',
+    windowMinutes: 30,
+    now: at('2026-03-15T00:00:00Z'),
+  });
+  assert.equal(out.exhaustive, false);
+  assert.equal(
+    isReachable('0 0 29 2 *', { triggerCron: '*/5 * * * 1', now: at('2026-03-15T00:00:00Z') }),
+    true,
+  );
+});

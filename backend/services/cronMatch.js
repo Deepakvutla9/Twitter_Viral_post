@@ -161,6 +161,31 @@ function isDueWithin(expr, { timeZone = 'UTC', now = new Date(), windowMinutes =
 // day per (schedule, zone, trigger) rather than on every fan-out.
 const reachabilityMemo = new Map();
 
+// Days in the Gregorian cycle, after which weekdays and calendar dates repeat
+// their alignment exactly.
+const GREGORIAN_CYCLE_DAYS = 146097;
+// Four years covers the leap cycle, which is enough whenever weekday alignment
+// is not part of the question.
+const LEAP_CYCLE_DAYS = 366 * 4 + 1;
+
+const restrictsDayOfWeek = (sets) => sets[4].size < 7;
+const restrictsCalendar = (sets) => sets[2].size !== 31 || sets[3].size !== 12;
+
+/**
+ * How far ahead a negative result has to look before it means anything.
+ *
+ * A date-only pattern repeats every four years. But "29 February" and "a Monday"
+ * only realign on the 400-year Gregorian cycle — 29 February 2044 is a Monday
+ * and the next one is decades away — so a four-year search that finds nothing
+ * has proved nothing. The instant budget still bounds the actual work; this only
+ * decides how long a search has to run before its silence counts as an answer.
+ */
+function requiredHorizonDays(accountSets, triggerSetsList) {
+  const dow = restrictsDayOfWeek(accountSets) || triggerSetsList.some(restrictsDayOfWeek);
+  const cal = restrictsCalendar(accountSets) || triggerSetsList.some(restrictsCalendar);
+  return dow && cal ? GREGORIAN_CYCLE_DAYS : LEAP_CYCLE_DAYS;
+}
+
 // Enumerated rather than scanned minute by minute: a year holds 525,600 minutes
 // but only a few thousand trigger instants, and a monthly schedule needs the
 // year. GitHub Actions cron is UTC, so these are built in UTC directly.
@@ -216,8 +241,7 @@ function* triggerInstants(sets, startMs, days, budget) {
 function searchReachability(expr, {
   timeZone = 'UTC', triggerCron = '0 */6 * * *',
   windowMinutes = 30, now = new Date(),
-  // Four years, so 29 February is inside the horizon rather than a false verdict.
-  days = 366 * 4 + 1,
+  days = null,
   maxInstants = 200000,
 } = {}) {
   const accountSets = parseCron(expr);
@@ -231,8 +255,9 @@ function searchReachability(expr, {
   // Nothing readable to compare against, so nothing is proven either way.
   if (!triggers.length) return { reachable: false, exhaustive: false };
 
+  const horizon = days ?? requiredHorizonDays(accountSets, triggers);
   const window = Math.max(0, Math.min(windowMinutes, 24 * 60));
-  const key = [expr, timeZone, JSON.stringify(triggerCron), window, days, maxInstants,
+  const key = [expr, timeZone, JSON.stringify(triggerCron), window, horizon, maxInstants,
     Math.floor(now.getTime() / 86400000)].join('|');
   if (reachabilityMemo.has(key)) return reachabilityMemo.get(key);
 
@@ -242,7 +267,7 @@ function searchReachability(expr, {
 
   outer:
   for (const sets of triggers) {
-    for (const t of triggerInstants(sets, now.getTime(), days, budget)) {
+    for (const t of triggerInstants(sets, now.getTime(), horizon, budget)) {
       // One zoned lookup per instant. Whole-minute offsets mean the local minute
       // at t-back is simply (localMinute - back) mod 60, so only the offsets
       // that could match the account's minute field are worth resolving.
@@ -283,4 +308,4 @@ function isReachable(expr, opts = {}) {
   return reachable || !exhaustive;
 }
 
-module.exports = { parseCron, matchesAt, isDueWithin, isReachable, searchReachability, zonedParts, __clearReachabilityMemo: () => reachabilityMemo.clear() };
+module.exports = { parseCron, matchesAt, isDueWithin, isReachable, searchReachability, requiredHorizonDays, zonedParts, __clearReachabilityMemo: () => reachabilityMemo.clear() };
