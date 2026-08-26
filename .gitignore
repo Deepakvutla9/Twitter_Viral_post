@@ -1,2 +1,5 @@
 node_modules
 .env
+
+# Internal working notes: names infra and open security gaps. Public repo.
+MULTI_ACCOUNT_HANDOFF.md
