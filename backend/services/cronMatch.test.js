@@ -103,3 +103,37 @@ test('a weekly schedule on a trigger hour is still reachable', () => {
 test('an unreadable trigger schedule does not condemn the account', () => {
   assert.equal(isReachable('0 9 * * *', { triggerCron: 'nonsense', now: at('2026-08-26T00:00:00Z') }), true);
 });
+
+test('a monthly schedule is reachable from any point in the month', () => {
+  // The horizon used to be seven days, so this returned false from any date
+  // more than a week before the 1st — a pure artifact of the scan length.
+  const opts = { triggerCron: '0 */6 * * *', windowMinutes: 30 };
+  for (const day of ['2026-08-02', '2026-08-15', '2026-08-28']) {
+    assert.equal(isReachable('0 0 1 * *', { ...opts, now: at(`${day}T00:00:00Z`) }), true, day);
+  }
+});
+
+test('a yearly schedule on a trigger hour is reachable', () => {
+  const opts = { triggerCron: '0 */6 * * *', windowMinutes: 30, now: at('2026-08-02T00:00:00Z') };
+  assert.equal(isReachable('0 12 25 12 *', opts), true, 'noon on 25 December');
+  assert.equal(isReachable('0 13 25 12 *', opts), false, '13:00 is never a trigger hour');
+});
+
+test('several trigger schedules are all considered', () => {
+  const now = at('2026-08-02T00:00:00Z');
+  assert.equal(isReachable('0 9 * * *', { triggerCron: '0 */6 * * *', now }), false);
+  assert.equal(
+    isReachable('0 9 * * *', { triggerCron: ['0 */6 * * *', '0 9 * * *'], now }),
+    true,
+    'a second workflow schedule makes it reachable',
+  );
+});
+
+test('reachability finishes quickly enough to run per slot', () => {
+  const { __clearReachabilityMemo } = require('./cronMatch');
+  __clearReachabilityMemo();
+  const started = Date.now();
+  // The worst case is an unreachable schedule: it cannot exit early.
+  isReachable('0 9 * * *', { triggerCron: '0 */6 * * *', now: at('2026-08-02T00:00:00Z') });
+  assert.ok(Date.now() - started < 3000, `took ${Date.now() - started}ms`);
+});

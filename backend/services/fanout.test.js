@@ -292,3 +292,36 @@ test('an ordinary quiet slot is not an error', async () => {
   assert.equal(getStatus().lastFanOut.error, null);
   assert.deepEqual(getStatus().lastFanOut.notDue, ['daily']);
 });
+
+test('an unreachable account is reported even when another account posts', async () => {
+  // The error used to be set only when nothing ran at all, so a healthy account
+  // succeeding in the same slot masked a handle that will never publish again.
+  accounts = [
+    ACCT('works', { cron: '0 */6 * * *', timezone: 'UTC' }),
+    ACCT('never', { cron: '0 9 * * *', timezone: 'UTC' }),
+  ];
+  const summary = await runAllAccounts({
+    stagger: 0, trigger: 'test', now: new Date('2026-08-26T12:00:00Z'),
+  });
+
+  assert.deepEqual(posted, ['works'], 'the healthy account still posts');
+  assert.equal(summary.posted, 1);
+  assert.deepEqual(summary.unreachable, ['never']);
+
+  const { lastFanOut } = getStatus();
+  assert.ok(lastFanOut.error, 'the slot still reports an error');
+  assert.match(lastFanOut.error, /never/);
+});
+
+test('a monthly account is idle, not unreachable', async () => {
+  // The seven-day scan used to call this unreachable from any date more than a
+  // week before the 1st, which would have failed every slot in between.
+  accounts = [ACCT('monthly', { cron: '0 0 1 * *', timezone: 'UTC' })];
+  const summary = await runAllAccounts({
+    stagger: 0, trigger: 'test', now: new Date('2026-08-02T12:00:00Z'),
+  });
+
+  assert.deepEqual(summary.unreachable, []);
+  assert.equal(summary.error, null);
+  assert.deepEqual(getStatus().lastFanOut.notDue, ['monthly']);
+});

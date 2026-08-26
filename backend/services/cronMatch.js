@@ -157,6 +157,48 @@ function isDueWithin(expr, { timeZone = 'UTC', now = new Date(), windowMinutes =
   return false;
 }
 
+// Reachability is stable for a given configuration, so it is computed once a
+// day per (schedule, zone, trigger) rather than on every fan-out.
+const reachabilityMemo = new Map();
+
+// Enumerated rather than scanned minute by minute: a year holds 525,600 minutes
+// but only a few thousand trigger instants, and a monthly schedule needs the
+// year. GitHub Actions cron is UTC, so these are built in UTC directly.
+function* triggerInstants(sets, startMs, days, cap) {
+  const [minutes, hours, dom, month, dow] = sets;
+  const start = new Date(startMs);
+  let seen = 0;
+
+  for (let d = 0; d <= days; d += 1) {
+    const day = new Date(Date.UTC(
+      start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + d,
+    ));
+    const M = day.getUTCMonth() + 1;
+    if (!month.has(M)) continue;
+
+    const domRestricted = dom.size !== 31;
+    const dowRestricted = dow.size < 7;
+    const dayOk = domRestricted && dowRestricted
+      ? dom.has(day.getUTCDate()) || dow.has(day.getUTCDay())
+      : domRestricted ? dom.has(day.getUTCDate())
+        : dowRestricted ? dow.has(day.getUTCDay())
+          : true;
+    if (!dayOk) continue;
+
+    for (const h of hours) {
+      for (const mi of minutes) {
+        const t = new Date(Date.UTC(
+          day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), h, mi,
+        ));
+        if (t.getTime() < startMs) continue;
+        seen += 1;
+        if (seen > cap) return;
+        yield t;
+      }
+    }
+  }
+}
+
 /**
  * Could this schedule ever actually run?
  *
@@ -165,31 +207,56 @@ function isDueWithin(expr, { timeZone = 'UTC', now = new Date(), windowMinutes =
  * on a deployment that only wakes at 00/06/12/18 is not "not due yet" — it can
  * never be due, and would look like a working account that silently never posts.
  *
- * Scans forward a week of trigger instants, which covers every daily and weekly
- * pattern. Monthly schedules can exceed it, so an unreachable verdict is a
- * warning to act on, not something the code enforces on its own.
+ * Scans a year of trigger instants, which covers every daily, weekly and monthly
+ * pattern the parser accepts. A schedule rarer than annual (29 February, say)
+ * can still be reported unreachable; that is a known limit of the horizon rather
+ * than a claim about the schedule.
+ *
+ * triggerCron may be a list, because a workflow can declare several schedules.
  */
 function isReachable(expr, {
   timeZone = 'UTC', triggerCron = '0 */6 * * *',
-  windowMinutes = 30, now = new Date(), days = 7,
+  windowMinutes = 30, now = new Date(), days = 366, cap = 50000,
 } = {}) {
   const accountSets = parseCron(expr);
   if (!accountSets) return false;
-  const triggerSets = parseCron(triggerCron);
-  // An unreadable trigger schedule is not the account's fault; do not blame it.
-  if (!triggerSets) return true;
+
+  const triggers = (Array.isArray(triggerCron) ? triggerCron : [triggerCron])
+    .map(parseCron)
+    .filter(Boolean);
+  // An unreadable trigger schedule is not the account's fault; the caller is
+  // responsible for validating it, and does.
+  if (!triggers.length) return true;
 
   const window = Math.max(0, Math.min(windowMinutes, 24 * 60));
-  const start = now.getTime();
-  for (let m = 0; m < days * 24 * 60; m += 1) {
-    const t = new Date(start + m * 60000);
-    // The external trigger runs on UTC, whatever the account's own zone is.
-    if (!matchesSets(triggerSets, zonedParts(t, 'UTC'))) continue;
-    for (let back = 0; back <= window; back += 1) {
-      if (matchesSets(accountSets, zonedParts(new Date(t.getTime() - back * 60000), timeZone))) return true;
+  const key = [expr, timeZone, JSON.stringify(triggerCron), window, days,
+    Math.floor(now.getTime() / 86400000)].join('|');
+  if (reachabilityMemo.has(key)) return reachabilityMemo.get(key);
+
+  const accountMinutes = accountSets[0];
+  let reachable = false;
+
+  outer:
+  for (const sets of triggers) {
+    for (const t of triggerInstants(sets, now.getTime(), days, cap)) {
+      // One zoned lookup per instant. Whole-minute offsets mean the local minute
+      // at t-back is simply (localMinute - back) mod 60, so only the offsets
+      // that could match the account's minute field are worth resolving.
+      const localMinute = zonedParts(t, timeZone).minute;
+      for (let back = 0; back <= window; back += 1) {
+        const m = (((localMinute - back) % 60) + 60) % 60;
+        if (!accountMinutes.has(m)) continue;
+        const at = new Date(t.getTime() - back * 60000);
+        if (matchesSets(accountSets, zonedParts(at, timeZone))) {
+          reachable = true;
+          break outer;
+        }
+      }
     }
   }
-  return false;
+
+  reachabilityMemo.set(key, reachable);
+  return reachable;
 }
 
-module.exports = { parseCron, matchesAt, isDueWithin, isReachable, zonedParts };
+module.exports = { parseCron, matchesAt, isDueWithin, isReachable, zonedParts, __clearReachabilityMemo: () => reachabilityMemo.clear() };

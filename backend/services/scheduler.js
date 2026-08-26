@@ -1,10 +1,12 @@
 const cron = require('node-cron');
+const fs = require('fs');
+const path = require('path');
 const { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, markPosted } = require('./newsScraper');
 const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
 const { getAccount, listActiveAccounts } = require('./accounts');
-const { isDueWithin, isReachable } = require('./cronMatch');
+const { isDueWithin, isReachable, parseCron } = require('./cronMatch');
 
 let activeJob = null;
 
@@ -210,9 +212,62 @@ const ACCOUNT_STAGGER_MS = boundedEnv('ACCOUNT_STAGGER_MS', 60000, 0, 10 * 60 * 
 // How late a trigger may arrive and still count for the slot it was aimed at.
 // Matches the double-fire guard window.
 const DUE_WINDOW_MINUTES = boundedEnv('DUE_WINDOW_MINUTES', 30, 0, 180);
-// When fan-out is actually invoked in production. An account whose schedule
-// never lines up with this can never run, however valid its cron is.
-const TRIGGER_CRON = process.env.TRIGGER_CRON || '0 */6 * * *';
+/**
+ * When fan-out is actually invoked. An account whose schedule never lines up
+ * with this can never run, however valid its own cron is.
+ *
+ * Read from the workflow that does the invoking, so there is one source of
+ * truth rather than two that drift. TRIGGER_CRON overrides it for deployments
+ * driven by something else, and a mismatch between the two is reported rather
+ * than silently believed — an override that no longer matches the workflow
+ * produces confident, wrong reachability verdicts.
+ */
+const WORKFLOW_PATH = path.join(__dirname, '..', '..', '.github', 'workflows', 'scheduled-post.yml');
+
+function schedulesFromWorkflow() {
+  try {
+    const text = fs.readFileSync(WORKFLOW_PATH, 'utf8');
+    const found = [...text.matchAll(/^\s*-\s*cron:\s*['"]?([^'"\n#]+?)['"]?\s*$/gm)]
+      .map((m) => m[1].trim())
+      .filter((c) => parseCron(c));
+    return found;
+  } catch {
+    return [];
+  }
+}
+
+function resolveTriggerCron() {
+  const fromWorkflow = schedulesFromWorkflow();
+  const override = process.env.TRIGGER_CRON;
+
+  if (override) {
+    const list = override.split(';').map((s) => s.trim()).filter(Boolean);
+    const valid = list.filter((c) => parseCron(c));
+    if (!valid.length) {
+      console.error(
+        `[Scheduler] ✗ TRIGGER_CRON="${override}" is not a valid schedule. ` +
+        'Using the workflow schedule instead — an unreadable trigger would otherwise ' +
+        'make every account look reachable.',
+      );
+    } else {
+      if (fromWorkflow.length && JSON.stringify(valid) !== JSON.stringify(fromWorkflow)) {
+        console.warn(
+          `[Scheduler] ⚠ TRIGGER_CRON (${valid.join(', ')}) does not match the workflow ` +
+          `schedule (${fromWorkflow.join(', ')}). Reachability follows TRIGGER_CRON; if the ` +
+          'workflow is what really fires, this override is wrong.',
+        );
+      }
+      return valid;
+    }
+  }
+
+  if (fromWorkflow.length) return fromWorkflow;
+
+  console.warn('[Scheduler] could not read a trigger schedule from the workflow — assuming 0 */6 * * *');
+  return ['0 */6 * * *'];
+}
+
+const TRIGGER_CRON = resolveTriggerCron();
 let fanOutInFlight = false;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -279,7 +334,7 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
   }
   if (unreachable.length) {
     console.error(
-      `[Fan-out] ✗ Never reachable with trigger "${TRIGGER_CRON}": ${unreachable.join(', ')}. ` +
+      `[Fan-out] ✗ Never reachable with trigger "${TRIGGER_CRON.join(", ")}": ${unreachable.join(', ')}. ` +
       'These accounts will never post until their cron or the trigger schedule changes.',
     );
   }
@@ -290,7 +345,7 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
     const why = !active.length
       ? 'no active accounts are configured'
       : unreachable.length
-        ? `no account is due and ${unreachable.length} can never be reached by trigger "${TRIGGER_CRON}"`
+        ? `${unreachable.length} account(s) can never be reached by trigger "${TRIGGER_CRON.join(", ")}"`
         : null;
     if (why) console.error(`[Fan-out] ✗ Nothing to run — ${why}`);
     else console.log(`[Fan-out] Nothing due this slot (${active.length} active, all reachable)`);
@@ -346,6 +401,7 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
     skipped: results.filter((r) => r.skipped).length,
     failed: results.filter((r) => !r.success && !r.skipped).length,
     unrecorded: results.filter((r) => r.recorded === false).length,
+    unreachable,
     results,
   };
 
@@ -355,6 +411,12 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
     activeAccounts: accounts.length,
     notDue,
     unreachable,
+    // Reported whether or not anything else posted. An unreachable account is a
+    // handle that will never publish again; another account succeeding in the
+    // same slot says nothing about it and must not mask it.
+    error: unreachable.length
+      ? `${unreachable.length} account(s) can never be reached by trigger "${TRIGGER_CRON.join(', ')}": ${unreachable.join(', ')}`
+      : null,
     posted: summary.posted,
     skipped: summary.skipped,
     failed: summary.failed,
@@ -411,4 +473,4 @@ function autoResume() {
   startScheduler(defaultCron);
 }
 
-module.exports = { runPipeline, runAllAccounts, startScheduler, stopScheduler, getStatus, setLastResult, autoResume, pickSource, slotPlan };
+module.exports = { runPipeline, runAllAccounts, getTriggerCron: () => [...TRIGGER_CRON], startScheduler, stopScheduler, getStatus, setLastResult, autoResume, pickSource, slotPlan };
