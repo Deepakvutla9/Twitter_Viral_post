@@ -67,7 +67,7 @@ test('both day fields restricted means either may match', () => {
   assert.ok(!matchesAt('0 12 1 * 1', at('2026-08-26T12:00:00Z')), 'neither');
 });
 
-const { isReachable } = require('./cronMatch');
+const { isReachable, searchReachability } = require('./cronMatch');
 
 test('a schedule the trigger never wakes for is unreachable', () => {
   // Production only invokes fan-out at 00/06/12/18 UTC. An account asking for
@@ -136,4 +136,44 @@ test('reachability finishes quickly enough to run per slot', () => {
   // The worst case is an unreachable schedule: it cannot exit early.
   isReachable('0 9 * * *', { triggerCron: '0 */6 * * *', now: at('2026-08-02T00:00:00Z') });
   assert.ok(Date.now() - started < 3000, `took ${Date.now() - started}ms`);
+});
+
+test('a leap-day schedule is inside the horizon', () => {
+  // 29 February recurs every four years, so a one-year scan called it
+  // unreachable — a fact about the scan, not about the schedule.
+  const opts = { triggerCron: '0 */6 * * *', windowMinutes: 30, now: at('2026-03-15T00:00:00Z') };
+  const out = searchReachability('0 0 29 2 *', opts);
+  assert.deepEqual(out, { reachable: true, exhaustive: true });
+});
+
+test('an exhausted budget is not the same answer as unreachable', () => {
+  // A per-minute trigger blows the instant budget long before an annual
+  // schedule comes round. Reporting that as unreachable would fail slots over
+  // an account that is perfectly fine.
+  const out = searchReachability('0 12 25 12 *', {
+    triggerCron: '* * * * *',
+    now: at('2026-03-15T00:00:00Z'),
+  });
+  assert.equal(out.reachable, false);
+  assert.equal(out.exhaustive, false, 'the search did not finish');
+  assert.equal(
+    isReachable('0 12 25 12 *', { triggerCron: '* * * * *', now: at('2026-03-15T00:00:00Z') }),
+    true,
+    'an unproven verdict must not be reported as a broken account',
+  );
+});
+
+test('a genuinely unreachable schedule is still reported, exhaustively', () => {
+  const out = searchReachability('0 9 * * *', {
+    triggerCron: '0 */6 * * *',
+    windowMinutes: 30,
+    now: at('2026-03-15T00:00:00Z'),
+  });
+  assert.deepEqual(out, { reachable: false, exhaustive: true });
+});
+
+test('an unreadable trigger schedule proves nothing either way', () => {
+  const out = searchReachability('0 9 * * *', { triggerCron: 'nonsense', now: at('2026-03-15T00:00:00Z') });
+  assert.equal(out.exhaustive, false);
+  assert.equal(isReachable('0 9 * * *', { triggerCron: 'nonsense', now: at('2026-03-15T00:00:00Z') }), true);
 });

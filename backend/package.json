@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "sync-trigger": "node scripts/sync-trigger-schedule.js",
+    "check-trigger": "node scripts/sync-trigger-schedule.js --check"
   },
   "keywords": [],
   "author": "",

@@ -6,7 +6,7 @@ const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
 const { getAccount, listActiveAccounts } = require('./accounts');
-const { isDueWithin, isReachable, parseCron } = require('./cronMatch');
+const { isDueWithin, searchReachability, parseCron } = require('./cronMatch');
 
 let activeJob = null;
 
@@ -222,49 +222,65 @@ const DUE_WINDOW_MINUTES = boundedEnv('DUE_WINDOW_MINUTES', 30, 0, 180);
  * than silently believed — an override that no longer matches the workflow
  * produces confident, wrong reachability verdicts.
  */
-const WORKFLOW_PATH = path.join(__dirname, '..', '..', '.github', 'workflows', 'scheduled-post.yml');
+const MANIFEST_PATH = path.join(__dirname, '..', 'trigger-schedule.json');
 
-function schedulesFromWorkflow() {
+function schedulesFromManifest() {
   try {
-    const text = fs.readFileSync(WORKFLOW_PATH, 'utf8');
-    const found = [...text.matchAll(/^\s*-\s*cron:\s*['"]?([^'"\n#]+?)['"]?\s*$/gm)]
-      .map((m) => m[1].trim())
-      .filter((c) => parseCron(c));
-    return found;
+    const parsed = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+    return (parsed.schedules || []).filter((c) => parseCron(c));
   } catch {
     return [];
   }
 }
 
 function resolveTriggerCron() {
-  const fromWorkflow = schedulesFromWorkflow();
+  // render.yaml sets rootDir: backend, so .github is not deployed and the
+  // workflow cannot be read at runtime. The manifest is generated from it by
+  // scripts/sync-trigger-schedule.js and checked in CI, so it ships inside the
+  // deployed directory and a workflow change also redeploys the backend.
+  const fromManifest = schedulesFromManifest();
   const override = process.env.TRIGGER_CRON;
 
-  if (override) {
-    const list = override.split(';').map((s) => s.trim()).filter(Boolean);
-    const valid = list.filter((c) => parseCron(c));
-    if (!valid.length) {
-      console.error(
-        `[Scheduler] ✗ TRIGGER_CRON="${override}" is not a valid schedule. ` +
-        'Using the workflow schedule instead — an unreadable trigger would otherwise ' +
-        'make every account look reachable.',
-      );
-    } else {
-      if (fromWorkflow.length && JSON.stringify(valid) !== JSON.stringify(fromWorkflow)) {
-        console.warn(
-          `[Scheduler] ⚠ TRIGGER_CRON (${valid.join(', ')}) does not match the workflow ` +
-          `schedule (${fromWorkflow.join(', ')}). Reachability follows TRIGGER_CRON; if the ` +
-          'workflow is what really fires, this override is wrong.',
-        );
-      }
-      return valid;
-    }
+  if (!override) {
+    if (fromManifest.length) return fromManifest;
+    console.warn(
+      '[Scheduler] no readable trigger-schedule.json — assuming 0 */6 * * *. ' +
+      'Run: node scripts/sync-trigger-schedule.js',
+    );
+    return ['0 */6 * * *'];
   }
 
-  if (fromWorkflow.length) return fromWorkflow;
+  const list = override.split(';').map((c) => c.trim()).filter(Boolean);
+  const valid = list.filter((c) => parseCron(c));
+  if (valid.length !== list.length) {
+    throw new Error(
+      `Refusing to start: TRIGGER_CRON="${override}" is not a valid schedule. ` +
+      'Reachability is judged against it, so an unreadable value would produce ' +
+      'confident wrong verdicts about which accounts can ever post.',
+    );
+  }
 
-  console.warn('[Scheduler] could not read a trigger schedule from the workflow — assuming 0 */6 * * *');
-  return ['0 */6 * * *'];
+  const agrees = !fromManifest.length
+    || JSON.stringify(valid) === JSON.stringify(fromManifest);
+  if (agrees) return valid;
+
+  // A disagreement is either a real external trigger or a stale override, and
+  // the two are indistinguishable from here. Warning and believing it lets a
+  // stale value quietly declare healthy accounts unreachable, so it has to be
+  // stated deliberately.
+  if (process.env.TRIGGER_SOURCE !== 'external') {
+    throw new Error(
+      `Refusing to start: TRIGGER_CRON (${valid.join(', ')}) disagrees with the ` +
+      `workflow schedule (${fromManifest.join(', ')}). If something other than the ` +
+      'workflow really drives this deployment, set TRIGGER_SOURCE=external to say so. ' +
+      'Otherwise fix TRIGGER_CRON or re-run scripts/sync-trigger-schedule.js.',
+    );
+  }
+  console.warn(
+    `[Scheduler] TRIGGER_SOURCE=external — reachability follows TRIGGER_CRON ` +
+    `(${valid.join(', ')}), not the workflow (${fromManifest.join(', ')}).`,
+  );
+  return valid;
 }
 
 const TRIGGER_CRON = resolveTriggerCron();
@@ -319,14 +335,18 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
   // ordinary is a schedule that can never coincide with the trigger at all —
   // that account looks configured and silently never posts, which is the thing
   // worth failing over.
+  // Only a completed search counts. An exhausted budget means "not found in the
+  // time available", which is not evidence that the account is broken, and
+  // reporting it as such would fail slots over a schedule that is fine.
   const unreachable = notDue.filter((slug) => {
     const a = active.find((x) => x.slug === slug);
-    return !isReachable(a.cron, {
+    const { reachable, exhaustive } = searchReachability(a.cron, {
       timeZone: a.timezone,
       triggerCron: TRIGGER_CRON,
       windowMinutes: DUE_WINDOW_MINUTES,
       now,
     });
+    return !reachable && exhaustive;
   });
 
   if (notDue.length) {
@@ -408,7 +428,8 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
   jobStatus.lastFanOut = {
     ...jobStatus.lastFanOut,
     finishedAt: new Date().toISOString(),
-    activeAccounts: accounts.length,
+    activeAccounts: active.length,
+    dueAccounts: accounts.length,
     notDue,
     unreachable,
     // Reported whether or not anything else posted. An unreachable account is a

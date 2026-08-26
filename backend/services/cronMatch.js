@@ -164,10 +164,9 @@ const reachabilityMemo = new Map();
 // Enumerated rather than scanned minute by minute: a year holds 525,600 minutes
 // but only a few thousand trigger instants, and a monthly schedule needs the
 // year. GitHub Actions cron is UTC, so these are built in UTC directly.
-function* triggerInstants(sets, startMs, days, cap) {
+function* triggerInstants(sets, startMs, days, budget) {
   const [minutes, hours, dom, month, dow] = sets;
   const start = new Date(startMs);
-  let seen = 0;
 
   for (let d = 0; d <= days; d += 1) {
     const day = new Date(Date.UTC(
@@ -191,8 +190,8 @@ function* triggerInstants(sets, startMs, days, cap) {
           day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), h, mi,
         ));
         if (t.getTime() < startMs) continue;
-        seen += 1;
-        if (seen > cap) return;
+        if (budget.left <= 0) { budget.exhausted = true; return; }
+        budget.left -= 1;
         yield t;
       }
     }
@@ -214,31 +213,36 @@ function* triggerInstants(sets, startMs, days, cap) {
  *
  * triggerCron may be a list, because a workflow can declare several schedules.
  */
-function isReachable(expr, {
+function searchReachability(expr, {
   timeZone = 'UTC', triggerCron = '0 */6 * * *',
-  windowMinutes = 30, now = new Date(), days = 366, cap = 50000,
+  windowMinutes = 30, now = new Date(),
+  // Four years, so 29 February is inside the horizon rather than a false verdict.
+  days = 366 * 4 + 1,
+  maxInstants = 200000,
 } = {}) {
   const accountSets = parseCron(expr);
-  if (!accountSets) return false;
+  // An expression the parser rejects never runs, and that is a complete answer:
+  // accounts.js refuses it at configuration time for the same reason.
+  if (!accountSets) return { reachable: false, exhaustive: true };
 
   const triggers = (Array.isArray(triggerCron) ? triggerCron : [triggerCron])
     .map(parseCron)
     .filter(Boolean);
-  // An unreadable trigger schedule is not the account's fault; the caller is
-  // responsible for validating it, and does.
-  if (!triggers.length) return true;
+  // Nothing readable to compare against, so nothing is proven either way.
+  if (!triggers.length) return { reachable: false, exhaustive: false };
 
   const window = Math.max(0, Math.min(windowMinutes, 24 * 60));
-  const key = [expr, timeZone, JSON.stringify(triggerCron), window, days,
+  const key = [expr, timeZone, JSON.stringify(triggerCron), window, days, maxInstants,
     Math.floor(now.getTime() / 86400000)].join('|');
   if (reachabilityMemo.has(key)) return reachabilityMemo.get(key);
 
   const accountMinutes = accountSets[0];
-  let reachable = false;
+  const budget = { left: maxInstants, exhausted: false };
+  let found = false;
 
   outer:
   for (const sets of triggers) {
-    for (const t of triggerInstants(sets, now.getTime(), days, cap)) {
+    for (const t of triggerInstants(sets, now.getTime(), days, budget)) {
       // One zoned lookup per instant. Whole-minute offsets mean the local minute
       // at t-back is simply (localMinute - back) mod 60, so only the offsets
       // that could match the account's minute field are worth resolving.
@@ -246,17 +250,37 @@ function isReachable(expr, {
       for (let back = 0; back <= window; back += 1) {
         const m = (((localMinute - back) % 60) + 60) % 60;
         if (!accountMinutes.has(m)) continue;
-        const at = new Date(t.getTime() - back * 60000);
-        if (matchesSets(accountSets, zonedParts(at, timeZone))) {
-          reachable = true;
+        if (matchesSets(accountSets, zonedParts(new Date(t.getTime() - back * 60000), timeZone))) {
+          found = true;
           break outer;
         }
       }
     }
   }
 
-  reachabilityMemo.set(key, reachable);
-  return reachable;
+  // Finding it is always conclusive. Not finding it is only conclusive if the
+  // whole horizon was actually searched -- an exhausted budget means "did not
+  // find it in the time available", which is not the same claim at all.
+  const out = { reachable: found, exhaustive: found || !budget.exhausted };
+  reachabilityMemo.set(key, out);
+  return out;
 }
 
-module.exports = { parseCron, matchesAt, isDueWithin, isReachable, zonedParts, __clearReachabilityMemo: () => reachabilityMemo.clear() };
+/**
+ * Could this schedule ever actually run?
+ *
+ * Fan-out only happens when something invokes it, and in production that is the
+ * external trigger on its own fixed schedule. An account asking for 09:00 daily
+ * on a deployment that only wakes at 00/06/12/18 is not "not due yet" — it can
+ * never be due, and would look like a working account that silently never posts.
+ *
+ * Returns false ONLY when the search completed and found nothing. An exhausted
+ * budget reports true, because an unproven verdict must not be reported as a
+ * broken account; callers wanting to tell the two apart use searchReachability.
+ */
+function isReachable(expr, opts = {}) {
+  const { reachable, exhaustive } = searchReachability(expr, opts);
+  return reachable || !exhaustive;
+}
+
+module.exports = { parseCron, matchesAt, isDueWithin, isReachable, searchReachability, zonedParts, __clearReachabilityMemo: () => reachabilityMemo.clear() };

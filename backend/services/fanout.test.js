@@ -325,3 +325,29 @@ test('a monthly account is idle, not unreachable', async () => {
   assert.equal(summary.error, null);
   assert.deepEqual(getStatus().lastFanOut.notDue, ['monthly']);
 });
+
+test('activeAccounts counts active accounts, not the ones that ran', async () => {
+  // It recorded the due count, so one due account beside two idle ones reported
+  // a single active account — and the status endpoint is how you check that.
+  accounts = [
+    ACCT('due', { cron: '0 */6 * * *', timezone: 'UTC' }),
+    ACCT('idle-a', { cron: '0 0 * * *', timezone: 'UTC' }),
+    ACCT('idle-b', { cron: '0 18 * * *', timezone: 'UTC' }),
+  ];
+  await runAllAccounts({ stagger: 0, trigger: 'test', now: new Date('2026-08-26T12:00:00Z') });
+
+  const { lastFanOut } = getStatus();
+  assert.equal(lastFanOut.activeAccounts, 3, 'three accounts are active');
+  assert.equal(lastFanOut.dueAccounts, 1, 'one of them was due');
+  assert.deepEqual(lastFanOut.notDue.sort(), ['idle-a', 'idle-b']);
+  assert.deepEqual(posted, ['due']);
+});
+
+test('a leap-day account is idle, not reported as broken', async () => {
+  accounts = [ACCT('leap', { cron: '0 0 29 2 *', timezone: 'UTC' })];
+  const summary = await runAllAccounts({
+    stagger: 0, trigger: 'test', now: new Date('2026-03-15T12:00:00Z'),
+  });
+  assert.deepEqual(summary.unreachable, []);
+  assert.equal(summary.error, null);
+});
