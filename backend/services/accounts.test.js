@@ -10,11 +10,15 @@ const {
   AccountConfigError,
 } = require('./accounts');
 
+// Synthetic id in the right shape. The production value is configuration, not
+// something to publish in a public repo.
+const IG_ID = '17841400000000000';
+
 const ROW = {
   slug: 'shadesofirony',
   display_name: 'Synthetic Minds',
   handle: '@shadesofirony',
-  ig_user_id: '26924862140533740',
+  ig_user_id: IG_ID,
   accent: '#00e5ff',
   cron: '0 */6 * * *',
   slot_plan: ['tech', 'visa', 'trump', 'visa'],
@@ -41,12 +45,28 @@ function useRows(rows, error) {
   supa.__setClient(stubDb(rows, error));
 }
 
-test.afterEach(() => { invalidateCache(); supa.__reset(); });
+// These tests set env vars to exercise the legacy fallback. Restoring them
+// keeps that leaking into whatever runs next in the same process.
+const ENV_KEYS = ['INSTAGRAM_USER_ID', 'DEFAULT_CRON', 'SLOT_PLAN'];
+let envSnapshot = {};
+
+test.beforeEach(() => {
+  envSnapshot = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+});
+
+test.afterEach(() => {
+  for (const k of ENV_KEYS) {
+    if (envSnapshot[k] === undefined) delete process.env[k];
+    else process.env[k] = envSnapshot[k];
+  }
+  invalidateCache();
+  supa.__reset();
+});
 
 test('normalizes a full row into a frozen account', () => {
   const a = normalizeAccount(ROW);
   assert.equal(a.slug, 'shadesofirony');
-  assert.equal(a.igUserId, '26924862140533740');
+  assert.equal(a.igUserId, IG_ID);
   assert.deepEqual([...a.slotPlan], ['tech', 'visa', 'trump', 'visa']);
   assert.equal(a.timezone, 'UTC');
   // Frozen: assignment is a silent no-op in sloppy mode, so check the value.
@@ -85,6 +105,21 @@ test('voice carries style fields only', () => {
   assert.deepEqual(a.voice.avoid, ['emoji']);
 });
 
+test('voice.avoid is frozen, not just the account around it', () => {
+  const a = normalizeAccount({ ...ROW, voice: { avoid: ['emoji'] } });
+  assert.throws(() => a.voice.avoid.push('hype'), TypeError);
+  assert.deepEqual(a.voice.avoid, ['emoji']);
+});
+
+test('accepts a real zone and rejects one that does not exist', () => {
+  assert.equal(normalizeAccount({ ...ROW, timezone: 'Asia/Kolkata' }).timezone, 'Asia/Kolkata');
+  // A wrong zone would silently shift every slot for this account. Intl also
+  // accepts legacy aliases like EST, which is fine - they resolve to real zones.
+  const err = catchError(() => normalizeAccount({ ...ROW, timezone: 'Not/AZone' }));
+  assert.ok(err instanceof AccountConfigError);
+  assert.match(err.problems.join(' '), /timezone/);
+});
+
 test('voice may not smuggle in grounding or prompt rules', () => {
   // Source grounding and number/date verification stay immutable and global.
   assert.throws(
@@ -110,12 +145,12 @@ test('getAccount returns the database row, not the env fallback', async () => {
   useRows([{ ...ROW, display_name: 'From DB' }]);
   const a = await getAccount('shadesofirony');
   assert.equal(a.source, 'database');
-  assert.equal(a.igUserId, '26924862140533740'); // env value must not leak in
+  assert.equal(a.igUserId, IG_ID); // env value must not leak in
   assert.equal(a.displayName, 'From DB');
 });
 
 test('env fallback fires only when the row is absent entirely', async () => {
-  process.env.INSTAGRAM_USER_ID = '26924862140533740';
+  process.env.INSTAGRAM_USER_ID = IG_ID;
   useRows([]);
   const a = await getAccount('shadesofirony');
   assert.equal(a.source, 'env-fallback');
@@ -124,13 +159,13 @@ test('env fallback fires only when the row is absent entirely', async () => {
 test('a partial database row is never topped up from env', async () => {
   // The row exists but is missing its ig id. Merging env in here would post one
   // account's content to another account's Instagram.
-  process.env.INSTAGRAM_USER_ID = '26924862140533740';
+  process.env.INSTAGRAM_USER_ID = IG_ID;
   useRows([{ ...ROW, ig_user_id: null }]);
   await assert.rejects(() => getAccount('shadesofirony'), AccountConfigError);
 });
 
 test('there is no env fallback for any account but the legacy one', async () => {
-  process.env.INSTAGRAM_USER_ID = '26924862140533740';
+  process.env.INSTAGRAM_USER_ID = IG_ID;
   useRows([]);
   await assert.rejects(() => getAccount('someone-else'), AccountConfigError);
 });

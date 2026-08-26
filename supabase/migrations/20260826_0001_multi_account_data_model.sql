@@ -34,13 +34,34 @@ comment on table public.ig_tokens is 'Long-lived IG token per account. Service-r
 
 -- Seed the account that is already posting. Its slug matches the default that
 -- posted_urls.account has been writing all along, so the FK below needs no backfill.
+--
+-- ig_user_id is deliberately left null and active false: the real value is
+-- configuration, not something to publish in a public repository. A fresh
+-- database therefore starts with an account that accounts.js reports as
+-- unusable until it is filled in, which is the intended failure - loud and
+-- specific, rather than a plausible-looking wrong id.
+--
+--   update public.accounts set ig_user_id = '...', active = true
+--   where slug = 'shadesofirony';
+--
+-- ON CONFLICT DO NOTHING means replaying this against the live database leaves
+-- the configured row untouched.
 insert into public.accounts (slug, display_name, handle, ig_user_id, active)
-values ('shadesofirony', 'Synthetic Minds', '@shadesofirony', '26924862140533740', true)
+values ('shadesofirony', 'Synthetic Minds', '@shadesofirony', null, false)
 on conflict (slug) do nothing;
 
-alter table public.posted_urls
-  add constraint posted_urls_account_fkey
-  foreign key (account) references public.accounts(slug);
+-- Guarded so the whole file can be replayed. ADD CONSTRAINT has no IF NOT
+-- EXISTS form, and re-running it against the live schema would abort.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'posted_urls_account_fkey'
+  ) then
+    alter table public.posted_urls
+      add constraint posted_urls_account_fkey
+      foreign key (account) references public.accounts(slug);
+  end if;
+end $$;
 
 -- Dedupe memory is per account: a story one account posted must stay available
 -- to the others. Cross-account overlap is a separate cooldown policy, not this.

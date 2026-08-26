@@ -60,8 +60,23 @@ function normalizeVoice(raw, problems) {
   return {
     tone: v.tone ? String(v.tone).slice(0, 300) : null,
     audience: v.audience ? String(v.audience).slice(0, 300) : null,
-    avoid: Array.isArray(v.avoid) ? v.avoid.map((s) => String(s).slice(0, 80)).slice(0, 20) : [],
+    // Frozen here, not just at the top level: an account object that advertises
+    // immutability but hands out a mutable array is worse than one that does not.
+    avoid: Object.freeze(
+      Array.isArray(v.avoid) ? v.avoid.map((s) => String(s).slice(0, 80)).slice(0, 20) : [],
+    ),
   };
+}
+
+// Intl throws RangeError on anything that is not a real zone, which is a
+// stricter check than any list we could keep up to date ourselves.
+function isValidTimezone(tz) {
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -90,6 +105,9 @@ function normalizeAccount(row, { source = 'database' } = {}) {
   const slotPlan = normalizeSlotPlan(row?.slot_plan, problems);
   const voice = normalizeVoice(row?.voice, problems);
   const timezone = String(row?.timezone || 'UTC').trim() || 'UTC';
+  // A wrong zone silently shifts every slot for this account, so it is checked
+  // rather than trusted. Slots are UTC unless an account says otherwise.
+  if (!isValidTimezone(timezone)) problems.push(`timezone "${timezone}" is not a known IANA zone`);
 
   if (problems.length) throw new AccountConfigError(slug || '(no slug)', problems);
 
