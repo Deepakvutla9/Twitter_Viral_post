@@ -6,6 +6,8 @@ const { cleanOldImages } = require('./services/imageComposer');
 const { autoResume } = require('./services/scheduler');
 const { postCarousel, checkToken, refreshToken } = require('./services/instagram');
 const postQueue = require('./services/postQueue');
+const { assertProductionSafe, isServiceRole } = require('./services/supabase');
+const { getAccount, listActiveAccounts } = require('./services/accounts');
 
 const scrapeRoutes         = require('./routes/scrape');
 const generateRoutes       = require('./routes/generate');
@@ -42,7 +44,10 @@ async function processQueue() {
   for (const item of due) {
     console.log(`[Queue] Firing scheduled post: "${item.title}" (id=${item.id})`);
     try {
-      await postCarousel(item.imagePaths, item.caption);
+      // Queue items predate multi-account and carry no slug yet; they run as
+      // the default account until the queue itself records one.
+      const account = await getAccount(item.accountSlug || undefined);
+      await postCarousel(item.imagePaths, item.caption, account);
       postQueue.updateStatus(item.id, 'posted');
       console.log(`[Queue] ✓ Posted: ${item.id}`);
     } catch (e) {
@@ -62,20 +67,36 @@ const PORT = process.env.PORT || 3001;
 // days; refreshing extends them another ~60, so as long as the server runs at
 // least monthly the token never lapses. Runs on startup and every 7 days.
 async function keepTokenFresh() {
-  const tok = await checkToken();
-  if (!tok.ok) {
-    console.warn(`[Instagram] ⚠ TOKEN PROBLEM — posts will fail until fixed:\n           ${tok.error}`);
+  let accounts;
+  try {
+    accounts = await listActiveAccounts();
+  } catch (e) {
+    console.warn(`[Instagram] ⚠ could not list accounts: ${e.message}`);
     return;
   }
-  console.log(`[Instagram] Token OK — posting as @${tok.username}`);
-  const refreshed = await refreshToken();
-  if (!refreshed.ok) console.warn(`[Instagram] token refresh skipped: ${refreshed.error}`);
+
+  // One account's dead token must not stop the others being kept alive.
+  for (const account of accounts) {
+    const tok = await checkToken(account);
+    if (!tok.ok) {
+      console.warn(`[Instagram] ⚠ TOKEN PROBLEM for ${account.slug} — posts will fail until fixed:\n           ${tok.error}`);
+      continue;
+    }
+    console.log(`[Instagram] Token OK — posting as @${tok.username} (${account.slug})`);
+    const refreshed = await refreshToken(account);
+    if (!refreshed.ok) console.warn(`[Instagram] token refresh skipped for ${account.slug}: ${refreshed.error}`);
+  }
 }
 
 setInterval(keepTokenFresh, 7 * 24 * 60 * 60 * 1000); // weekly
 
+// Refuse to start on the anon key in production rather than discovering it as
+// missing configuration in the middle of a scheduled run.
+assertProductionSafe();
+
 app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`[Supabase] ${isServiceRole() ? 'service-role key' : 'anon key / no database'}`);
   await keepTokenFresh();
   autoResume();
 });

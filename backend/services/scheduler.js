@@ -3,6 +3,7 @@ const { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArti
 const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
+const { getAccount } = require('./accounts');
 
 let activeJob = null;
 
@@ -76,8 +77,13 @@ async function runPipeline({ force = false } = {}) {
   jobStatus.lastRun = new Date().toISOString();
 
   try {
+    // Resolved up front so a broken account fails before any scraping, model
+    // call or image render happens. Fan-out across accounts comes later; this
+    // run still targets the default one.
+    const account = await getAccount();
+
     const source = pickSource();
-    console.log(`[Pipeline] Source for this run: ${source}`);
+    console.log(`[Pipeline] Source for this run: ${source} (as ${account.handle})`);
 
     // Visa news falls back to the tech pool rather than failing the slot — a
     // missed post is worse than an off-topic one, and the feeds occasionally
@@ -119,7 +125,7 @@ async function runPipeline({ force = false } = {}) {
     const images = await composeSlideImages(slides, article.ogImage || null, imagePrompt || null);
     const imagePaths = images.map((i) => i.filepath);
 
-    const postId = await postCarousel(imagePaths, caption);
+    const postId = await postCarousel(imagePaths, caption, account);
     await markPosted(article.url);
     jobStatus.totalPosted++;
 

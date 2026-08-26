@@ -14,6 +14,17 @@ require.cache[svcPath] = {
   },
 };
 
+// The route resolves an account before it can check anything, so stub that too.
+const acctPath = require.resolve('../services/accounts.js');
+require.cache[acctPath] = {
+  id: acctPath, filename: acctPath, loaded: true,
+  exports: {
+    getAccount: async () => ({
+      slug: 'shadesofirony', handle: '@shadesofirony', igUserId: '17841400000000000',
+    }),
+  },
+};
+
 const router = require('./instagram');
 const app = express();
 app.use(express.json());

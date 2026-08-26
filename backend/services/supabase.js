@@ -14,12 +14,37 @@ let client = null;
 let usingServiceRole = false;
 let warned = false;
 
+/**
+ * Fail closed in production rather than quietly running on the anon key.
+ *
+ * Once RLS is on, an anon-key process reads nothing from accounts or ig_tokens.
+ * Discovering that as "no accounts configured" in the middle of a scheduled run
+ * is far worse than refusing to start, so the refusal is explicit and happens
+ * before anything tries to post.
+ *
+ * Deliberately keyed on NODE_ENV=production. If that is not set on the host,
+ * this does not fire — so the startup log says which mode it decided on rather
+ * than leaving it to be assumed.
+ */
+function assertProductionSafe() {
+  if (process.env.NODE_ENV !== 'production') return;
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) return;
+  throw new Error(
+    'Refusing to start: NODE_ENV=production with no SUPABASE_SERVICE_ROLE_KEY. ' +
+    'The anon key cannot read accounts or ig_tokens once RLS is enabled, which ' +
+    'would surface as missing configuration mid-run. Set SUPABASE_SERVICE_ROLE_KEY.',
+  );
+}
+
 function getSupabase() {
   if (client) return client;
 
   const url = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const anonKey = process.env.SUPABASE_ANON_KEY;
+
+  assertProductionSafe();
+
   if (!url || (!serviceKey && !anonKey)) return null;
 
   const key = serviceKey || anonKey;
@@ -56,4 +81,4 @@ function __reset() {
   warned = false;
 }
 
-module.exports = { getSupabase, isServiceRole, __setClient, __reset };
+module.exports = { getSupabase, isServiceRole, assertProductionSafe, __setClient, __reset };
