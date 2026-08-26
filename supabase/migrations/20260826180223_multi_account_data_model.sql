@@ -1,5 +1,5 @@
 -- Step 1 of multi-account: one row per posting account, tokens kept apart.
--- Applied to project ref (see Render env SUPABASE_URL) on 2026-08-26.
+-- Already applied; recorded in the remote history as 20260826180223.
 
 create table if not exists public.accounts (
   slug          text primary key,
@@ -55,7 +55,13 @@ on conflict (slug) do nothing;
 do $$
 begin
   if not exists (
-    select 1 from pg_constraint where conname = 'posted_urls_account_fkey'
+    -- Scoped to the table and constraint type: constraint names are only unique
+    -- per table, so matching on name alone would skip creating this foreign key
+    -- if some unrelated table ever carried the same name.
+    select 1 from pg_constraint
+    where conrelid = 'public.posted_urls'::regclass
+      and conname  = 'posted_urls_account_fkey'
+      and contype  = 'f'
   ) then
     alter table public.posted_urls
       add constraint posted_urls_account_fkey
