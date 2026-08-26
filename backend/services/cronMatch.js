@@ -87,9 +87,16 @@ function parseCron(expr) {
   return sets;
 }
 
+const formatters = new Map();
+function formatterFor(timeZone) {
+  let fmt = formatters.get(timeZone);
+  if (!fmt) { fmt = buildFormatter(timeZone); formatters.set(timeZone, fmt); }
+  return fmt;
+}
+
 // Wall-clock fields for an instant, as the account's own timezone sees them.
-function zonedParts(date, timeZone) {
-  const fmt = new Intl.DateTimeFormat('en-US', {
+function buildFormatter(timeZone) {
+  return new Intl.DateTimeFormat('en-US', {
     timeZone,
     hourCycle: 'h23',
     year: 'numeric',
@@ -99,7 +106,10 @@ function zonedParts(date, timeZone) {
     minute: 'numeric',
     weekday: 'short',
   });
-  const parts = Object.fromEntries(fmt.formatToParts(date).map((p) => [p.type, p.value]));
+}
+
+function zonedParts(date, timeZone) {
+  const parts = Object.fromEntries(formatterFor(timeZone).formatToParts(date).map((p) => [p.type, p.value]));
   return {
     minute: Number(parts.minute),
     hour: Number(parts.hour),
@@ -109,11 +119,7 @@ function zonedParts(date, timeZone) {
   };
 }
 
-function matchesAt(expr, date, timeZone = 'UTC') {
-  const sets = parseCron(expr);
-  if (!sets) return false;
-  const p = zonedParts(date, timeZone);
-
+function matchesSets(sets, p) {
   const [minute, hour, dom, month, dow] = sets;
   if (!minute.has(p.minute) || !hour.has(p.hour) || !month.has(p.month)) return false;
 
@@ -127,6 +133,12 @@ function matchesAt(expr, date, timeZone = 'UTC') {
   return true;
 }
 
+function matchesAt(expr, date, timeZone = 'UTC') {
+  const sets = parseCron(expr);
+  if (!sets) return false;
+  return matchesSets(sets, zonedParts(date, timeZone));
+}
+
 /**
  * Did this expression fire at any point in the last `windowMinutes`?
  *
@@ -136,11 +148,48 @@ function matchesAt(expr, date, timeZone = 'UTC') {
  * silently, which looks exactly like the account being broken.
  */
 function isDueWithin(expr, { timeZone = 'UTC', now = new Date(), windowMinutes = 30 } = {}) {
-  if (!parseCron(expr)) return false;
-  for (let back = 0; back <= windowMinutes; back += 1) {
-    if (matchesAt(expr, new Date(now.getTime() - back * 60000), timeZone)) return true;
+  const sets = parseCron(expr);
+  if (!sets) return false;
+  const window = Number.isFinite(windowMinutes) ? Math.max(0, Math.min(windowMinutes, 24 * 60)) : 0;
+  for (let back = 0; back <= window; back += 1) {
+    if (matchesSets(sets, zonedParts(new Date(now.getTime() - back * 60000), timeZone))) return true;
   }
   return false;
 }
 
-module.exports = { parseCron, matchesAt, isDueWithin, zonedParts };
+/**
+ * Could this schedule ever actually run?
+ *
+ * Fan-out only happens when something invokes it, and in production that is the
+ * external trigger on its own fixed schedule. An account asking for 09:00 daily
+ * on a deployment that only wakes at 00/06/12/18 is not "not due yet" — it can
+ * never be due, and would look like a working account that silently never posts.
+ *
+ * Scans forward a week of trigger instants, which covers every daily and weekly
+ * pattern. Monthly schedules can exceed it, so an unreachable verdict is a
+ * warning to act on, not something the code enforces on its own.
+ */
+function isReachable(expr, {
+  timeZone = 'UTC', triggerCron = '0 */6 * * *',
+  windowMinutes = 30, now = new Date(), days = 7,
+} = {}) {
+  const accountSets = parseCron(expr);
+  if (!accountSets) return false;
+  const triggerSets = parseCron(triggerCron);
+  // An unreadable trigger schedule is not the account's fault; do not blame it.
+  if (!triggerSets) return true;
+
+  const window = Math.max(0, Math.min(windowMinutes, 24 * 60));
+  const start = now.getTime();
+  for (let m = 0; m < days * 24 * 60; m += 1) {
+    const t = new Date(start + m * 60000);
+    // The external trigger runs on UTC, whatever the account's own zone is.
+    if (!matchesSets(triggerSets, zonedParts(t, 'UTC'))) continue;
+    for (let back = 0; back <= window; back += 1) {
+      if (matchesSets(accountSets, zonedParts(new Date(t.getTime() - back * 60000), timeZone))) return true;
+    }
+  }
+  return false;
+}
+
+module.exports = { parseCron, matchesAt, isDueWithin, isReachable, zonedParts };

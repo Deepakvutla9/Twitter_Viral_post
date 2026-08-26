@@ -4,7 +4,7 @@ const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
 const { getAccount, listActiveAccounts } = require('./accounts');
-const { isDueWithin } = require('./cronMatch');
+const { isDueWithin, isReachable } = require('./cronMatch');
 
 let activeJob = null;
 
@@ -187,10 +187,32 @@ async function runPipeline({ force = false, account: given, slot = null, trigger
 // allows 8000 tokens per minute and one generation costs roughly 4000, so two
 // accounts firing together would rate-limit each other into the backoff path for
 // no gain. Sequential also keeps the image uploads and Graph API calls apart.
-const ACCOUNT_STAGGER_MS = Number(process.env.ACCOUNT_STAGGER_MS ?? 60000);
+/**
+ * A bounded number from the environment, or the default.
+ *
+ * Number('') is 0, Number('abc') is NaN and Number('Infinity') is Infinity —
+ * and an infinite due window makes the matcher's loop non-terminating, while a
+ * malformed stagger silently removes the spacing the Groq budget depends on.
+ * Neither should be reachable by a typo.
+ */
+function boundedEnv(name, fallback, min, max) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || String(raw).trim() === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < min || n > max) {
+    console.warn(`[Scheduler] ignoring invalid ${name}="${raw}" — using ${fallback} (allowed ${min}-${max})`);
+    return fallback;
+  }
+  return n;
+}
+
+const ACCOUNT_STAGGER_MS = boundedEnv('ACCOUNT_STAGGER_MS', 60000, 0, 10 * 60 * 1000);
 // How late a trigger may arrive and still count for the slot it was aimed at.
 // Matches the double-fire guard window.
-const DUE_WINDOW_MINUTES = Number(process.env.DUE_WINDOW_MINUTES ?? 30);
+const DUE_WINDOW_MINUTES = boundedEnv('DUE_WINDOW_MINUTES', 30, 0, 180);
+// When fan-out is actually invoked in production. An account whose schedule
+// never lines up with this can never run, however valid its cron is.
+const TRIGGER_CRON = process.env.TRIGGER_CRON || '0 */6 * * *';
 let fanOutInFlight = false;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -237,17 +259,42 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
     return false;
   });
 
+  // Once accounts carry their own schedules, "nothing due" is ordinary: a daily
+  // account is legitimately idle at three of the four slots. What is NOT
+  // ordinary is a schedule that can never coincide with the trigger at all —
+  // that account looks configured and silently never posts, which is the thing
+  // worth failing over.
+  const unreachable = notDue.filter((slug) => {
+    const a = active.find((x) => x.slug === slug);
+    return !isReachable(a.cron, {
+      timeZone: a.timezone,
+      triggerCron: TRIGGER_CRON,
+      windowMinutes: DUE_WINDOW_MINUTES,
+      now,
+    });
+  });
+
   if (notDue.length) {
     console.log(`[Fan-out] Not due this slot: ${notDue.join(', ')}`);
   }
+  if (unreachable.length) {
+    console.error(
+      `[Fan-out] ✗ Never reachable with trigger "${TRIGGER_CRON}": ${unreachable.join(', ')}. ` +
+      'These accounts will never post until their cron or the trigger schedule changes.',
+    );
+  }
 
-  // Zero accounts is a configuration failure, not a quiet success. Reporting it
-  // as "0 posted, 0 failed" makes a broken deployment look like a healthy one.
   if (!accounts.length) {
-    const why = active.length
-      ? `no account is due (${active.length} active, none scheduled for this slot)`
-      : 'no active accounts are configured';
-    console.error(`[Fan-out] ✗ Nothing to run — ${why}`);
+    // No active accounts at all is a broken deployment. Nothing due this slot,
+    // with every account reachable, is a normal quiet slot.
+    const why = !active.length
+      ? 'no active accounts are configured'
+      : unreachable.length
+        ? `no account is due and ${unreachable.length} can never be reached by trigger "${TRIGGER_CRON}"`
+        : null;
+    if (why) console.error(`[Fan-out] ✗ Nothing to run — ${why}`);
+    else console.log(`[Fan-out] Nothing due this slot (${active.length} active, all reachable)`);
+
     jobStatus.lastFanOut = {
       startedAt: new Date().toISOString(),
       finishedAt: new Date().toISOString(),
@@ -255,6 +302,7 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
       accounts: 0,
       activeAccounts: active.length,
       notDue,
+      unreachable,
       posted: 0,
       skipped: 0,
       failed: 0,
@@ -262,7 +310,7 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
       error: why,
       results: [],
     };
-    return { accounts: 0, posted: 0, skipped: 0, failed: 0, results: [], error: why };
+    return { accounts: 0, posted: 0, skipped: 0, failed: 0, results: [], unreachable, error: why };
   }
 
   console.log(`[Fan-out] ${accounts.length} account(s) due, ${stagger}ms apart`);
@@ -306,6 +354,7 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
     finishedAt: new Date().toISOString(),
     activeAccounts: accounts.length,
     notDue,
+    unreachable,
     posted: summary.posted,
     skipped: summary.skipped,
     failed: summary.failed,

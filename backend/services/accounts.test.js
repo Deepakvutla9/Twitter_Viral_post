@@ -174,3 +174,22 @@ test('a read error surfaces instead of quietly returning no accounts', async () 
   useRows(null, { message: 'permission denied for table accounts' });
   await assert.rejects(() => listActiveAccounts(), /permission denied/);
 });
+
+test('a six-field cron is rejected with the reason, not silently accepted', () => {
+  // node-cron's own validate accepts a leading seconds column, but this
+  // scheduler decides at minute granularity. Accepting one here and failing to
+  // match it there is how an account looks configured and never runs.
+  const err = catchError(() => normalizeAccount({ ...ROW, cron: '0 0 */6 * * *' }));
+  assert.ok(err instanceof AccountConfigError);
+  assert.match(err.problems.join(' '), /six fields/);
+});
+
+test('validation and matching use the same parser', () => {
+  const { parseCron } = require('./cronMatch');
+  // Anything accepted here must be matchable, or an account can be valid and
+  // permanently idle at the same time.
+  for (const expr of ['0 */6 * * *', '30 9 * * 1-5', '*/15 * * * *', '0 0 1 * *']) {
+    assert.doesNotThrow(() => normalizeAccount({ ...ROW, cron: expr }), expr);
+    assert.ok(parseCron(expr), `${expr} must also parse for matching`);
+  }
+});

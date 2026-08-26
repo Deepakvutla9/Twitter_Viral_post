@@ -66,3 +66,40 @@ test('both day fields restricted means either may match', () => {
   assert.ok(matchesAt('0 12 1 * 1', at('2026-08-31T12:00:00Z')), 'a Monday, not the 1st');
   assert.ok(!matchesAt('0 12 1 * 1', at('2026-08-26T12:00:00Z')), 'neither');
 });
+
+const { isReachable } = require('./cronMatch');
+
+test('a schedule the trigger never wakes for is unreachable', () => {
+  // Production only invokes fan-out at 00/06/12/18 UTC. An account asking for
+  // 09:00 daily is not "not due yet" — it can never be due, and would look like
+  // a working account that silently never posts.
+  const opts = { triggerCron: '0 */6 * * *', windowMinutes: 30, now: at('2026-08-26T00:00:00Z') };
+  assert.equal(isReachable('0 9 * * *', opts), false);
+  assert.equal(isReachable('0 */6 * * *', opts), true);
+  assert.equal(isReachable('0 12 * * *', opts), true, 'daily at a slot time is fine');
+});
+
+test('the due window widens what is reachable', () => {
+  const base = { triggerCron: '0 */6 * * *', now: at('2026-08-26T00:00:00Z') };
+  // 11:45 is 15 minutes before the 12:00 trigger, so a 30-minute window catches it.
+  assert.equal(isReachable('45 11 * * *', { ...base, windowMinutes: 30 }), true);
+  assert.equal(isReachable('45 11 * * *', { ...base, windowMinutes: 5 }), false);
+});
+
+test('reachability is judged in the account own timezone', () => {
+  // 17:00 in Kolkata is 11:30 UTC, inside the window before the 12:00 trigger.
+  // The same wall-clock time read as UTC is 17:00, a full hour before 18:00 and
+  // so out of reach — the zone is the only thing separating the two.
+  const base = { triggerCron: '0 */6 * * *', windowMinutes: 30, now: at('2026-08-26T00:00:00Z') };
+  assert.equal(isReachable('0 17 * * *', { ...base, timeZone: 'Asia/Kolkata' }), true);
+  assert.equal(isReachable('0 17 * * *', { ...base, timeZone: 'UTC' }), false);
+});
+
+test('a weekly schedule on a trigger hour is still reachable', () => {
+  const opts = { triggerCron: '0 */6 * * *', windowMinutes: 30, now: at('2026-08-26T00:00:00Z') };
+  assert.equal(isReachable('0 18 * * 1', opts), true, 'Mondays at 18:00');
+});
+
+test('an unreadable trigger schedule does not condemn the account', () => {
+  assert.equal(isReachable('0 9 * * *', { triggerCron: 'nonsense', now: at('2026-08-26T00:00:00Z') }), true);
+});

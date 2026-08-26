@@ -67,12 +67,20 @@ jobs:
               unrecorded=$(jq -r '.lastFanOut.unrecorded // 0' /tmp/status.json)
               echo "ran=$ran posted=$posted failed=$failed unrecorded=$unrecorded"
 
-              # Nothing ran. "0 posted, 0 failed" is not a healthy slot — it is a
-              # misconfiguration that would otherwise show up as a green run
-              # forever.
-              if [ "$ran" -eq 0 ]; then
-                echo "::error::No account ran this slot: $(jq -r '.lastFanOut.error // "unknown"' /tmp/status.json)"
+              # Nothing due is ordinary once accounts carry their own schedules:
+              # a daily account is idle at three of the four slots. The backend
+              # sets lastFanOut.error only when nothing ran for a reason worth
+              # failing over — no active accounts, or a schedule that can never
+              # coincide with this trigger.
+              err=$(jq -r '.lastFanOut.error // ""' /tmp/status.json)
+              if [ -n "$err" ]; then
+                echo "::error::$err"
+                jq -r '.lastFanOut.unreachable[]? | "  unreachable: " + .' /tmp/status.json
                 exit 1
+              fi
+              if [ "$ran" -eq 0 ]; then
+                echo "Nothing due this slot; $(jq -r '.lastFanOut.activeAccounts // 0' /tmp/status.json) active account(s) all reachable."
+                exit 0
               fi
               # One account failing is worth a red run even when another posted:
               # a quietly dead handle otherwise looks identical to a healthy slot.
@@ -80,9 +88,15 @@ jobs:
                 echo "::error::$failed account(s) failed this slot."
                 exit 1
               fi
-              # Published but not recorded: the story can be picked again.
+              # Published but not recorded. The in-process stopgap covers the
+              # rest of this fan-out and nothing more — it dies when the instance
+              # sleeps or restarts, so the next slot can pick the same story
+              # again. That needs someone to look at it, not a warning nobody
+              # reads.
               if [ "$unrecorded" -gt 0 ]; then
-                echo "::warning::$unrecorded post(s) published without being recorded in the dedupe history."
+                echo "::error::$unrecorded post(s) published but NOT recorded in the dedupe history — they can be reposted after a restart."
+                jq -r '.lastFanOut.results[] | select(.recorded == false) | "  unrecorded: " + .account' /tmp/status.json
+                exit 1
               fi
               exit 0
             fi

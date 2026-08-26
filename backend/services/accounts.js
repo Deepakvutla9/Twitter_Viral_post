@@ -1,4 +1,4 @@
-const cron = require('node-cron');
+const { parseCron } = require('./cronMatch');
 const { getSupabase } = require('./supabase');
 
 // The single configuration boundary for "which account are we posting as".
@@ -100,7 +100,19 @@ function normalizeAccount(row, { source = 'database' } = {}) {
   if (!ACCENT_RE.test(accent)) problems.push(`accent "${accent}" must be #rrggbb`);
 
   const cronExpr = String(row?.cron || '0 */6 * * *').trim();
-  if (!cron.validate(cronExpr)) problems.push(`cron "${cronExpr}" is not a valid expression`);
+  // Validated with the same parser the scheduler matches against, deliberately.
+  // node-cron's validate also accepts six-field expressions with a seconds
+  // column, which this scheduler cannot honour — it decides at minute
+  // granularity. Accepting one here and failing to match it there is how an
+  // account ends up looking configured and never running.
+  if (!parseCron(cronExpr)) {
+    const fields = cronExpr.split(/\s+/).length;
+    problems.push(
+      fields === 6
+        ? `cron "${cronExpr}" has six fields; this scheduler runs at minute granularity, so drop the leading seconds field`
+        : `cron "${cronExpr}" is not a valid five-field expression`,
+    );
+  }
 
   const slotPlan = normalizeSlotPlan(row?.slot_plan, problems);
   const voice = normalizeVoice(row?.voice, problems);

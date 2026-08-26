@@ -245,20 +245,6 @@ test('an account schedule is read in its own timezone', async () => {
   assert.deepEqual(posted, [], 'not due at 09:30 UTC');
 });
 
-test('no account due is an error, not a quiet success', async () => {
-  // "0 posted, 0 failed" would otherwise look like a healthy slot forever.
-  accounts = [ACCT('ninonly', { cron: '0 9 * * *', timezone: 'UTC' })];
-  const summary = await runAllAccounts({ stagger: 0, trigger: 'test', now: new Date('2026-08-26T12:00:00Z') });
-
-  assert.equal(summary.accounts, 0);
-  assert.match(summary.error, /none scheduled/);
-  const { lastFanOut } = getStatus();
-  assert.equal(lastFanOut.accounts, 0);
-  assert.equal(lastFanOut.activeAccounts, 1);
-  assert.deepEqual(lastFanOut.notDue, ['ninonly']);
-  assert.ok(lastFanOut.error);
-});
-
 test('zero active accounts is an error too', async () => {
   accounts = [];
   const summary = await run();
@@ -276,4 +262,33 @@ test('a post that could not be recorded is reported, not swallowed', async () =>
   assert.equal(summary.unrecorded, 3, 'and every one is flagged as unrecorded');
   assert.equal(getStatus().lastFanOut.unrecorded, 3);
   assert.equal(getStatus().lastFanOut.results[0].recorded, false);
+});
+
+test('an account that can never be reached is an error, not a quiet skip', async () => {
+  // Production wakes at 00/06/12/18 UTC. 09:00 daily can never coincide, so the
+  // account looks configured and silently never posts.
+  accounts = [ACCT('nineam', { cron: '0 9 * * *', timezone: 'UTC' })];
+  const summary = await runAllAccounts({
+    stagger: 0, trigger: 'test', now: new Date('2026-08-26T12:00:00Z'),
+  });
+
+  assert.equal(summary.accounts, 0);
+  assert.deepEqual(summary.unreachable, ['nineam']);
+  assert.match(summary.error, /never be reached/);
+  assert.deepEqual(getStatus().lastFanOut.unreachable, ['nineam']);
+});
+
+test('an ordinary quiet slot is not an error', async () => {
+  // A daily account is legitimately idle at three of the four slots. Failing
+  // there would make a normal schedule look broken every day.
+  accounts = [ACCT('daily', { cron: '0 18 * * *', timezone: 'UTC' })];
+  const summary = await runAllAccounts({
+    stagger: 0, trigger: 'test', now: new Date('2026-08-26T12:00:00Z'),
+  });
+
+  assert.equal(summary.accounts, 0);
+  assert.deepEqual(summary.unreachable, []);
+  assert.equal(summary.error, null, 'reachable but idle is normal');
+  assert.equal(getStatus().lastFanOut.error, null);
+  assert.deepEqual(getStatus().lastFanOut.notDue, ['daily']);
 });
