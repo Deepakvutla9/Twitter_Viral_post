@@ -61,14 +61,28 @@ jobs:
             done_at=$(jq -r '.lastFanOut.finishedAt // ""' /tmp/status.json)
             if [ -n "$done_at" ] && [ "$done_at" \> "$START" ]; then
               jq -r '.lastFanOut.results[] | "  \(.account): \(.outcome) \(.reason // .postId // "")"' /tmp/status.json
+              ran=$(jq -r '.lastFanOut.accounts // 0' /tmp/status.json)
               posted=$(jq -r '.lastFanOut.posted // 0' /tmp/status.json)
               failed=$(jq -r '.lastFanOut.failed // 0' /tmp/status.json)
-              echo "posted=$posted failed=$failed"
+              unrecorded=$(jq -r '.lastFanOut.unrecorded // 0' /tmp/status.json)
+              echo "ran=$ran posted=$posted failed=$failed unrecorded=$unrecorded"
+
+              # Nothing ran. "0 posted, 0 failed" is not a healthy slot — it is a
+              # misconfiguration that would otherwise show up as a green run
+              # forever.
+              if [ "$ran" -eq 0 ]; then
+                echo "::error::No account ran this slot: $(jq -r '.lastFanOut.error // "unknown"' /tmp/status.json)"
+                exit 1
+              fi
               # One account failing is worth a red run even when another posted:
               # a quietly dead handle otherwise looks identical to a healthy slot.
               if [ "$failed" -gt 0 ]; then
                 echo "::error::$failed account(s) failed this slot."
                 exit 1
+              fi
+              # Published but not recorded: the story can be picked again.
+              if [ "$unrecorded" -gt 0 ]; then
+                echo "::warning::$unrecorded post(s) published without being recorded in the dedupe history."
               fi
               exit 0
             fi

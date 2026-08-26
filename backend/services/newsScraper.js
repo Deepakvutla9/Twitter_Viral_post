@@ -57,13 +57,54 @@ async function loadHistory(account) {
  *
  * Set CROSS_ACCOUNT_COOLDOWN_HOURS=0 to let accounts overlap freely.
  */
+const DEFAULT_COOLDOWN_HOURS = 24;
+
+/**
+ * Hours of cross-account cooldown. Only an explicit, valid number disables it.
+ *
+ * Number('') is 0 and Number('abc') is NaN, so the obvious parse turns a typo,
+ * an empty variable or a negative value into "protection off" — silently, and
+ * in the direction that lets two handles post the same headline.
+ */
+function cooldownHours() {
+  const raw = process.env.CROSS_ACCOUNT_COOLDOWN_HOURS;
+  if (raw === undefined || raw === null || String(raw).trim() === '') return DEFAULT_COOLDOWN_HOURS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    console.warn(
+      `[News] ignoring invalid CROSS_ACCOUNT_COOLDOWN_HOURS="${raw}" — ` +
+      `falling back to ${DEFAULT_COOLDOWN_HOURS}h rather than disabling the cooldown.`,
+    );
+    return DEFAULT_COOLDOWN_HOURS;
+  }
+  return n;
+}
+
+// Stories this process published but could not record. A failed write means the
+// database cannot warn the next account off, so they are held here for the
+// cooldown window as well. In memory only: it covers the rest of this process,
+// which is what the next account in the same fan-out needs.
+const unrecorded = new Map();
+
+function rememberUnrecorded(url) {
+  unrecorded.set(url, Date.now());
+}
+
+function pruneUnrecorded(windowMs) {
+  const cutoff = Date.now() - windowMs;
+  for (const [url, at] of unrecorded) if (at < cutoff) unrecorded.delete(url);
+}
+
 async function loadCrossAccountRecent(account) {
   const slug = requireAccount(account, 'loadCrossAccountRecent');
-  const hours = Number(process.env.CROSS_ACCOUNT_COOLDOWN_HOURS ?? 24);
-  if (!(hours > 0)) return new Set();
+  const hours = cooldownHours();
+  if (hours === 0) return new Set();
+
+  pruneUnrecorded(hours * 3600 * 1000);
 
   const db = getSupabase();
-  if (!db) return new Set();
+  // With no database the in-memory set is the only protection there is.
+  if (!db) return new Set(unrecorded.keys());
 
   const since = new Date(Date.now() - hours * 3600 * 1000).toISOString();
   const { data, error } = await db
@@ -80,7 +121,7 @@ async function loadCrossAccountRecent(account) {
       'Refusing to continue rather than risk two accounts posting the same story.',
     );
   }
-  return new Set((data || []).map((r) => r.url));
+  return new Set([...(data || []).map((r) => r.url), ...unrecorded.keys()]);
 }
 
 /**
@@ -124,6 +165,7 @@ async function markPosted(url, account) {
         '           The post went out but is NOT in the dedupe history — it can be picked again. ' +
         'Skipping retention so no further memory is lost.',
       );
+      rememberUnrecorded(url);
       return { ok: false, error: error.message };
     }
     console.log('[Supabase] URL saved successfully.');
@@ -150,6 +192,7 @@ async function markPosted(url, account) {
     return { ok: true };
   } catch (e) {
     console.error('[Supabase] markPosted exception:', e.message);
+    rememberUnrecorded(url);
     return { ok: false, error: e.message };
   }
 }
@@ -786,4 +829,4 @@ async function fetchTrumpArticle(account) {
 }
 
 
-module.exports = { loadHistory, loadCrossAccountRecent, loadExclusions, fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, scoreVisaArticle, scoreTrumpArticle, hasRealContent, stripBoilerplate, markPosted };
+module.exports = { loadHistory, cooldownHours, __rememberUnrecorded: rememberUnrecorded, __clearUnrecorded: () => unrecorded.clear(), loadCrossAccountRecent, loadExclusions, fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, scoreVisaArticle, scoreTrumpArticle, hasRealContent, stripBoilerplate, markPosted };

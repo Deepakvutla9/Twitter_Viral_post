@@ -4,6 +4,7 @@ const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
 const { getAccount, listActiveAccounts } = require('./accounts');
+const { isDueWithin } = require('./cronMatch');
 
 let activeJob = null;
 
@@ -150,8 +151,19 @@ async function runPipeline({ force = false, account: given, slot = null, trigger
     const imagePaths = images.map((i) => i.filepath);
 
     const postId = await postCarousel(imagePaths, caption, account);
-    await markPosted(article.url, account);
+    const recorded = await markPosted(article.url, account);
     jobStatus.totalPosted++;
+
+    // The post is out. If recording it failed, the database cannot warn the next
+    // account off this story, so the run reports it rather than swallowing it —
+    // and newsScraper holds the URL in memory as a stopgap for the rest of this
+    // process, which is what covers the very next account in the same fan-out.
+    if (recorded && recorded.ok === false && !recorded.skipped) {
+      console.error(
+        `[Pipeline] ⚠ ${slug} published ${postId} but the URL was not recorded: ${recorded.error}. ` +
+        'Another account could pick the same story once this process restarts.',
+      );
+    }
 
     const result = {
       success: true,
@@ -160,6 +172,7 @@ async function runPipeline({ force = false, account: given, slot = null, trigger
       article: article.title,
       postedAt: new Date().toISOString(),
       account: slug,
+      recorded: !(recorded && recorded.ok === false && !recorded.skipped),
     };
     jobStatus.lastResult = result;
 
@@ -175,6 +188,10 @@ async function runPipeline({ force = false, account: given, slot = null, trigger
 // accounts firing together would rate-limit each other into the backoff path for
 // no gain. Sequential also keeps the image uploads and Graph API calls apart.
 const ACCOUNT_STAGGER_MS = Number(process.env.ACCOUNT_STAGGER_MS ?? 60000);
+// How late a trigger may arrive and still count for the slot it was aimed at.
+// Matches the double-fire guard window.
+const DUE_WINDOW_MINUTES = Number(process.env.DUE_WINDOW_MINUTES ?? 30);
+let fanOutInFlight = false;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -186,9 +203,69 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * result is collected either way, so the caller can tell "posted", "skipped by
  * the guard" and "failed" apart instead of seeing one aggregate error.
  */
-async function runAllAccounts({ slot = null, trigger = 'fan-out', force = false, stagger = ACCOUNT_STAGGER_MS } = {}) {
-  const accounts = await listActiveAccounts();
-  console.log(`[Fan-out] ${accounts.length} active account(s), ${stagger}ms apart`);
+async function runAllAccounts({
+  slot = null, trigger = 'fan-out', force = false,
+  stagger = ACCOUNT_STAGGER_MS, now = new Date(),
+} = {}) {
+  // The in-process cron and the external trigger aim at the same slot, and the
+  // per-account guards do not stop two fan-outs interleaving: one would run
+  // account A while the other runs account B, which breaks the sequential
+  // spacing the Groq budget depends on and leaves lastFanOut describing a mix
+  // of both. Only one fan-out at a time.
+  if (fanOutInFlight) {
+    console.log('[Fan-out] Skipped — a fan-out is already running');
+    return { skipped: true, reason: 'fan-out-in-flight', accounts: 0, posted: 0, failed: 0, results: [] };
+  }
+  fanOutInFlight = true;
+
+  try {
+    return await fanOut({ slot, trigger, force, stagger, now });
+  } finally {
+    fanOutInFlight = false;
+  }
+}
+
+async function fanOut({ slot, trigger, force, stagger, now }) {
+  const active = await listActiveAccounts();
+
+  // An account only runs in the slots its own cron names, in its own timezone.
+  // A manual run ignores the schedule, which is the point of a manual run.
+  const notDue = [];
+  const accounts = force ? active : active.filter((a) => {
+    if (isDueWithin(a.cron, { timeZone: a.timezone, now, windowMinutes: DUE_WINDOW_MINUTES })) return true;
+    notDue.push(a.slug);
+    return false;
+  });
+
+  if (notDue.length) {
+    console.log(`[Fan-out] Not due this slot: ${notDue.join(', ')}`);
+  }
+
+  // Zero accounts is a configuration failure, not a quiet success. Reporting it
+  // as "0 posted, 0 failed" makes a broken deployment look like a healthy one.
+  if (!accounts.length) {
+    const why = active.length
+      ? `no account is due (${active.length} active, none scheduled for this slot)`
+      : 'no active accounts are configured';
+    console.error(`[Fan-out] ✗ Nothing to run — ${why}`);
+    jobStatus.lastFanOut = {
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      trigger,
+      accounts: 0,
+      activeAccounts: active.length,
+      notDue,
+      posted: 0,
+      skipped: 0,
+      failed: 0,
+      unrecorded: 0,
+      error: why,
+      results: [],
+    };
+    return { accounts: 0, posted: 0, skipped: 0, failed: 0, results: [], error: why };
+  }
+
+  console.log(`[Fan-out] ${accounts.length} account(s) due, ${stagger}ms apart`);
 
   // Reported separately from lastResult, which only ever describes one account.
   // The external trigger polls this to know the whole slot is done: watching
@@ -220,24 +297,29 @@ async function runAllAccounts({ slot = null, trigger = 'fan-out', force = false,
     posted: results.filter((r) => r.success).length,
     skipped: results.filter((r) => r.skipped).length,
     failed: results.filter((r) => !r.success && !r.skipped).length,
+    unrecorded: results.filter((r) => r.recorded === false).length,
     results,
   };
 
   jobStatus.lastFanOut = {
     ...jobStatus.lastFanOut,
     finishedAt: new Date().toISOString(),
+    activeAccounts: accounts.length,
+    notDue,
     posted: summary.posted,
     skipped: summary.skipped,
     failed: summary.failed,
+    unrecorded: summary.unrecorded,
     results: results.map((r) => ({
       account: r.account,
       outcome: r.success ? 'posted' : r.skipped ? 'skipped' : 'failed',
       reason: r.reason || r.error || null,
       postId: r.postId || null,
+      recorded: r.recorded !== false,
     })),
   };
 
-  console.log(`[Fan-out] ${summary.posted} posted, ${summary.skipped} skipped, ${summary.failed} failed`);
+  console.log(`[Fan-out] ${summary.posted} posted, ${summary.skipped} skipped, ${summary.failed} failed, ${summary.unrecorded} unrecorded`);
   return summary;
 }
 

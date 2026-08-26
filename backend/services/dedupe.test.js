@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const supa = require('./supabase');
-const { loadHistory, markPosted } = require('./newsScraper');
+const { loadHistory, markPosted, __clearUnrecorded } = require('./newsScraper');
 
 const ONE = Object.freeze({ slug: 'shadesofirony', handle: '@shadesofirony', igUserId: '17841400000000000' });
 const TWO = Object.freeze({ slug: 'second', handle: '@second', igUserId: '17841400000000001' });
@@ -40,7 +40,12 @@ function makeDb(cfg = {}) {
   return { from: (t) => builder(t), _log: log };
 }
 
-test.afterEach(() => supa.__reset());
+test.afterEach(() => {
+  supa.__reset();
+  // markPosted remembers URLs it could not record, in module state. Leaving them
+  // behind would make a later test see another test's failed write.
+  __clearUnrecorded();
+});
 
 test('history reads are scoped to the account', async () => {
   const db = makeDb({
@@ -223,4 +228,50 @@ test('a failed cooldown read throws rather than risking a shared headline', asyn
   process.env.CROSS_ACCOUNT_COOLDOWN_HOURS = '24';
 
   await assert.rejects(() => loadCrossAccountRecent(ONE), /two accounts posting the same story/);
+});
+
+test('an invalid cooldown falls back to the default rather than disabling', async () => {
+  // Number('') is 0 and Number('abc') is NaN, so a typo or an empty variable
+  // would otherwise read as "protection off" — silently, and in the direction
+  // that lets two handles post the same headline.
+  const { cooldownHours } = require('./newsScraper');
+  for (const bad of ['', '   ', 'abc', '-1', 'NaN']) {
+    process.env.CROSS_ACCOUNT_COOLDOWN_HOURS = bad;
+    assert.equal(cooldownHours(), 24, `"${bad}" must not disable the cooldown`);
+  }
+  delete process.env.CROSS_ACCOUNT_COOLDOWN_HOURS;
+  assert.equal(cooldownHours(), 24, 'unset means default');
+  process.env.CROSS_ACCOUNT_COOLDOWN_HOURS = '0';
+  assert.equal(cooldownHours(), 0, 'only an explicit zero disables it');
+  process.env.CROSS_ACCOUNT_COOLDOWN_HOURS = '6';
+  assert.equal(cooldownHours(), 6);
+});
+
+test('a story that failed to record is still withheld from the next account', async () => {
+  // The database cannot warn anyone off a URL it never stored, so the process
+  // holds it in memory for the rest of the fan-out.
+  process.env.CROSS_ACCOUNT_COOLDOWN_HOURS = '24';
+
+  const db = makeDb({
+    upsertError: { message: 'permission denied' },
+    resolve: () => ({ data: [], error: null }),
+  });
+  supa.__setClient(db);
+
+  const out = await markPosted('https://story-that-failed', ONE);
+  assert.equal(out.ok, false);
+
+  const excluded = await loadExclusions(TWO);
+  assert.ok(excluded.has('https://story-that-failed'), 'the next account must not pick it');
+});
+
+test('the in-memory stopgap is dropped once the cooldown has passed', async () => {
+  const { __rememberUnrecorded } = require('./newsScraper');
+  process.env.CROSS_ACCOUNT_COOLDOWN_HOURS = '0.000001'; // ~3.6ms
+  __rememberUnrecorded('https://old');
+  await new Promise((r) => setTimeout(r, 20));
+
+  supa.__setClient(makeDb({ resolve: () => ({ data: [], error: null }) }));
+  const out = await loadCrossAccountRecent(TWO);
+  assert.ok(!out.has('https://old'));
 });

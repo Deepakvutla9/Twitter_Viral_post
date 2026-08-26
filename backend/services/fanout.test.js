@@ -9,6 +9,7 @@ const failFor = new Set();
 // the scheduler destructures postCarousel at require time, so swapping the
 // cached export later has no effect on what it calls.
 let beforePost = null;
+let markPostedResult = { ok: true };
 
 const ACCT = (slug, extra = {}) => Object.freeze({
   slug, handle: `@${slug}`, igUserId: '17841400000000000',
@@ -22,7 +23,7 @@ const stubs = {
     fetchTrendingArticle: async (a) => ({ title: `Story ${a.slug}`, url: `https://example.com/${a.slug}`, points: 1, ogImage: null }),
     fetchVisaArticle: async (a) => ({ title: `Visa ${a.slug}`, url: `https://example.com/visa-${a.slug}`, points: 1, ogImage: null }),
     fetchTrumpArticle: async (a) => ({ title: `Trump ${a.slug}`, url: `https://example.com/trump-${a.slug}`, points: 1, ogImage: null }),
-    markPosted: async () => ({ ok: true }),
+    markPosted: async () => markPostedResult,
   },
   './gemini.js': {
     generateCarouselSlides: async () => ({
@@ -67,6 +68,7 @@ test.beforeEach(() => {
   failFor.clear();
   listError = null;
   beforePost = null;
+  markPostedResult = { ok: true };
   accounts = [ACCT('one'), ACCT('two'), ACCT('three')];
 });
 
@@ -171,4 +173,107 @@ test('each account draws from its own slot plan', async () => {
   const visaOnly = ACCT('v', { slotPlan: ['visa'] });
   assert.equal(pickSource(noon, techOnly), 'tech');
   assert.equal(pickSource(noon, visaOnly), 'visa');
+});
+
+// ── the five gaps from review ───────────────────────────────────────────────
+
+test('two fan-outs cannot interleave their accounts', async () => {
+  // The in-process cron and the external trigger aim at the same slot. Without a
+  // fan-out lock, one would run account two while the other ran account one,
+  // breaking the sequential spacing the Groq budget depends on.
+  let release;
+  const hold = new Promise((r) => { release = r; });
+  beforePost = async (a) => { if (a.slug === 'one') await hold; };
+
+  const first = run();
+  await new Promise((r) => setImmediate(r));
+  const second = await run();
+
+  assert.equal(second.skipped, true);
+  assert.equal(second.reason, 'fan-out-in-flight');
+
+  release();
+  const firstSummary = await first;
+  assert.equal(firstSummary.posted, 3, 'the first fan-out still completed in order');
+  assert.deepEqual(posted, ['one', 'two', 'three']);
+});
+
+test('a fan-out that was skipped does not overwrite the last summary', async () => {
+  await run();
+  const good = getStatus().lastFanOut;
+
+  let release;
+  const hold = new Promise((r) => { release = r; });
+  beforePost = async (a) => { if (a.slug === 'one') await hold; };
+  const first = run();
+  await new Promise((r) => setImmediate(r));
+  await run(); // skipped
+  release();
+  await first;
+
+  assert.ok(getStatus().lastFanOut.finishedAt >= good.finishedAt);
+  assert.equal(getStatus().lastFanOut.accounts, 3, 'still describes a real fan-out');
+});
+
+test('an account is only run in the slots its own cron names', async () => {
+  accounts = [
+    ACCT('sixhourly', { cron: '0 */6 * * *', timezone: 'UTC' }),
+    ACCT('ninonly', { cron: '0 9 * * *', timezone: 'UTC' }),
+  ];
+  const summary = await runAllAccounts({
+    stagger: 0, trigger: 'test', now: new Date('2026-08-26T12:00:00Z'),
+  });
+
+  assert.deepEqual(posted, ['sixhourly']);
+  assert.deepEqual(summary.results.map((r) => r.account), ['sixhourly']);
+});
+
+test('a manual run ignores the schedule, which is the point of a manual run', async () => {
+  accounts = [ACCT('ninonly', { cron: '0 9 * * *', timezone: 'UTC' })];
+  await runAllAccounts({ force: true, stagger: 0, trigger: 'test', now: new Date('2026-08-26T12:00:00Z') });
+  assert.deepEqual(posted, ['ninonly']);
+});
+
+test('an account schedule is read in its own timezone', async () => {
+  // 09:00 in Kolkata is 03:30 UTC.
+  accounts = [ACCT('india', { cron: '30 9 * * *', timezone: 'Asia/Kolkata' })];
+  await runAllAccounts({ stagger: 0, trigger: 'test', now: new Date('2026-08-26T04:00:00Z') });
+  assert.deepEqual(posted, ['india']);
+
+  posted.length = 0;
+  await runAllAccounts({ stagger: 0, trigger: 'test', now: new Date('2026-08-26T09:30:00Z') });
+  assert.deepEqual(posted, [], 'not due at 09:30 UTC');
+});
+
+test('no account due is an error, not a quiet success', async () => {
+  // "0 posted, 0 failed" would otherwise look like a healthy slot forever.
+  accounts = [ACCT('ninonly', { cron: '0 9 * * *', timezone: 'UTC' })];
+  const summary = await runAllAccounts({ stagger: 0, trigger: 'test', now: new Date('2026-08-26T12:00:00Z') });
+
+  assert.equal(summary.accounts, 0);
+  assert.match(summary.error, /none scheduled/);
+  const { lastFanOut } = getStatus();
+  assert.equal(lastFanOut.accounts, 0);
+  assert.equal(lastFanOut.activeAccounts, 1);
+  assert.deepEqual(lastFanOut.notDue, ['ninonly']);
+  assert.ok(lastFanOut.error);
+});
+
+test('zero active accounts is an error too', async () => {
+  accounts = [];
+  const summary = await run();
+  assert.equal(summary.accounts, 0);
+  assert.match(summary.error, /no active accounts/);
+  assert.ok(getStatus().lastFanOut.error);
+});
+
+test('a post that could not be recorded is reported, not swallowed', async () => {
+  markPostedResult = { ok: false, error: 'permission denied' };
+
+  const summary = await run();
+
+  assert.equal(summary.posted, 3, 'the posts did go out');
+  assert.equal(summary.unrecorded, 3, 'and every one is flagged as unrecorded');
+  assert.equal(getStatus().lastFanOut.unrecorded, 3);
+  assert.equal(getStatus().lastFanOut.results[0].recorded, false);
 });
