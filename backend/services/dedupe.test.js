@@ -119,6 +119,24 @@ test('retention leaves an account under the cap alone', async () => {
   assert.equal(db._log.deletes.length, 0);
 });
 
+test('a failed write stops before retention runs', async () => {
+  // The carousel is already on Instagram but the URL is not recorded, so the
+  // story can be picked again. Trimming the oldest rows on top of that discards
+  // memory still doing its job and widens the window for a repost.
+  const rows = Array.from({ length: 104 }, (_, i) => ({ id: i + 1 }));
+  const db = makeDb({
+    upsertError: { message: 'duplicate key value violates constraint' },
+    resolve: (q) => (q.cols === 'id' ? { data: rows, error: null } : { data: [], error: null }),
+  });
+  supa.__setClient(db);
+
+  const out = await markPosted('https://story', ONE);
+
+  assert.equal(out.ok, false);
+  assert.equal(db._log.selects.filter((s) => s.cols === 'id').length, 0, 'no retention read');
+  assert.equal(db._log.deletes.length, 0, 'and nothing deleted');
+});
+
 test('a retention read failure does not take the whole write down', async () => {
   // The url is already recorded by then; failing here would lose that.
   const db = makeDb({

@@ -52,7 +52,7 @@ async function markPosted(url, account) {
   const db = getSupabase();
   if (!db) {
     console.log('[Supabase] Not configured — skipping markPosted. Check SUPABASE_URL and the service-role key.');
-    return;
+    return { ok: false, skipped: true };
   }
   try {
     console.log(`[Supabase] Saving URL for ${slug}: ${url}`);
@@ -66,10 +66,18 @@ async function markPosted(url, account) {
         { onConflict: 'account,url' },
       );
     if (error) {
-      console.error('[Supabase] upsert error:', error.message);
-    } else {
-      console.log('[Supabase] URL saved successfully.');
+      // Stop here. The carousel is already on Instagram but this URL is not in
+      // the history, so the story can be picked again. Trimming the oldest rows
+      // on top of that would discard memory that is still doing its job and
+      // widen the window for a repost. Nothing to do but say so loudly.
+      console.error(
+        `[Supabase] ✗ FAILED to record ${url} for ${slug}: ${error.message}\n` +
+        '           The post went out but is NOT in the dedupe history — it can be picked again. ' +
+        'Skipping retention so no further memory is lost.',
+      );
+      return { ok: false, error: error.message };
     }
+    console.log('[Supabase] URL saved successfully.');
 
     // Retention is per account: one busy account must not evict another's memory.
     const { data, error: readErr } = await db
@@ -78,8 +86,10 @@ async function markPosted(url, account) {
       .eq('account', slug)
       .order('posted_at', { ascending: true });
     if (readErr) {
+      // The URL is recorded, which is the part that matters. Leaving the table
+      // slightly over the cap is harmless.
       console.error('[Supabase] retention read error:', readErr.message);
-      return;
+      return { ok: true, retentionSkipped: true };
     }
     if (data && data.length > RETENTION_PER_ACCOUNT) {
       const idsToDelete = data.slice(0, data.length - RETENTION_PER_ACCOUNT).map((r) => r.id);
@@ -88,8 +98,10 @@ async function markPosted(url, account) {
       // refactor away from clearing another account's memory.
       await db.from('posted_urls').delete().eq('account', slug).in('id', idsToDelete);
     }
+    return { ok: true };
   } catch (e) {
     console.error('[Supabase] markPosted exception:', e.message);
+    return { ok: false, error: e.message };
   }
 }
 
@@ -507,7 +519,7 @@ async function fetchTrendingArticle(account) {
 
   console.log(`[Trending] Top candidate: "${scored[0]?.title}" (score: ${scored[0]?.score})`);
 
-  if (!scored.length) return fetchTrendingFallback();
+  if (!scored.length) return fetchTrendingFallback(account);
 
   // Try to scrape top candidates
   for (const item of scored.slice(0, 8)) {
@@ -530,7 +542,7 @@ async function fetchTrendingArticle(account) {
     } catch {}
   }
 
-  return fetchTrendingFallback();
+  return fetchTrendingFallback(account);
 }
 
 // ── VISA / IMMIGRATION NEWS (Indian workers + students) ─────────────────────
