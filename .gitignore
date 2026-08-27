@@ -1,2 +1,9 @@
 node_modules
 .env
+
+# Internal working notes: names infra and open security gaps. Public repo.
+MULTI_ACCOUNT_HANDOFF.md
+
+# Local API target used when testing against a stub backend
+.env.local
+frontend/.env.local

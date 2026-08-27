@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      # render.yaml sets rootDir: backend, so the backend cannot read
+      # .github/workflows at runtime and relies on a generated manifest instead.
+      # This is the check that keeps the two from drifting — without it, editing
+      # the workflow would silently change when posts happen while the backend
+      # went on believing the old schedule.
+      - name: Trigger schedule manifest is current
+        run: node scripts/sync-trigger-schedule.js --check
+
+      - name: Tests
+        run: npm test

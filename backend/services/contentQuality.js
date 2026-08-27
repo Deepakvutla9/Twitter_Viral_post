@@ -341,7 +341,31 @@ function shuffle(list) {
 // topic don't get identical captions — and any leftover slots are filled at
 // random. With no copy it degrades to the old blind shuffle, minus the
 // match-only tags, which is what the pool-variety tests exercise.
-function pickHashtags(count = 5, category, text) {
+// An account's own tags are almost always brand or beat tags, so they are
+// offered ahead of the pool — but capped, because filling every slot with the
+// same fixed tags would undo the per-post relevance matching below and make
+// every caption identical.
+const MAX_ACCOUNT_TAGS = 2;
+
+function normalizeAccountTags(extra) {
+  if (!Array.isArray(extra)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of extra) {
+    const tag = String(raw || '').trim();
+    if (!/^#?[A-Za-z0-9]+$/.test(tag)) continue;
+    // Lowercased, like every tag in the pools. Instagram treats #AI and #ai as
+    // one tag, and the relevance matcher scores against lowercase copy — so a
+    // tag written "#OpenAI" would otherwise score zero and never ship at all.
+    const withHash = (tag.startsWith('#') ? tag : `#${tag}`).toLowerCase();
+    if (seen.has(withHash)) continue;
+    seen.add(withHash);
+    out.push(withHash);
+  }
+  return out;
+}
+
+function pickHashtags(count = 5, category, text, extra = []) {
   const pool = HASHTAG_POOLS[category] || HASHTAG_POOL;
   const index = relevanceIndex(text);
   const anchors = ANCHOR_TAGS[category] || ANCHOR_TAGS.tech;
@@ -353,35 +377,54 @@ function pickHashtags(count = 5, category, text) {
     ...shuffle(pool.filter((tag) => !anchors.includes(tag) && !MATCH_ONLY.has(tag))),
   ];
 
-  if (!index.flat) return shuffle(filler).slice(0, Math.min(count, filler.length));
+  // Account tags are a relevance-filtered candidate pool, not permanent brand
+  // tags. An account tag ships only when the post actually talks about it:
+  // #visa on an obituary is worse than generic filler, because filler is merely
+  // uninformative while a themed tag is a wrong claim about the post. Permanent
+  // always-on tags would be a separate, explicit field — this one is not it.
+  const accountTags = normalizeAccountTags(extra);
+  const leading = index.flat
+    ? accountTags
+      .filter((tag) => tagScore(tag, index) > 0)
+      .slice(0, Math.min(MAX_ACCOUNT_TAGS, count))
+    : [];
 
-  const matched = shuffle(pool)
+  // Instagram treats #AI and #ai as one tag, so every comparison below is
+  // case-insensitive. Matching on the literal string publishes both.
+  const chosen = [];
+  const taken = new Set();
+  const add = (tag) => {
+    const key = tag.toLowerCase();
+    if (taken.has(key) || chosen.length >= count) return;
+    taken.add(key);
+    chosen.push(tag);
+  };
+
+  leading.forEach(add);
+
+  if (!index.flat) {
+    shuffle(filler).forEach(add);
+    return chosen;
+  }
+
+  shuffle(pool)
     .map((tag) => ({ tag, score: tagScore(tag, index) }))
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, count)
-    .map((entry) => entry.tag);
+    .forEach((entry) => add(entry.tag));
 
-  const chosen = matched.slice();
-  const taken = new Set(chosen);
-  for (const tag of filler) {
-    if (chosen.length >= count) break;
-    if (!taken.has(tag)) {
-      chosen.push(tag);
-      taken.add(tag);
-    }
-  }
+  filler.forEach(add);
   return chosen;
 }
 
 // Build the final caption: hook text (with any model-inlined hashtags stripped)
 // plus a single line of 5 hashtags matched against what the post actually says.
-function buildCaption(parsed, category, text) {
+function buildCaption(parsed, category, text, extra = []) {
   const hookText = cleanText(parsed?.caption)
     .replace(/#\S+/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-  const line = pickHashtags(5, category, text).join(' ');
+  const line = pickHashtags(5, category, text, extra).join(' ');
   return line ? `${hookText}\n\n${line}` : hookText;
 }
 
@@ -469,7 +512,7 @@ function evaluateCarouselContent(content) {
   };
 }
 
-function normalizeAndEvaluateCarousel(parsed, article) {
+function normalizeAndEvaluateCarousel(parsed, article, account) {
   const slides = normalizeSlides(parsed, article);
 
   // Hashtags are matched against what the post itself says, so the slide copy
@@ -485,7 +528,10 @@ function normalizeAndEvaluateCarousel(parsed, article) {
   const normalized = {
     slides,
     imagePrompt: cleanText(parsed?.imagePrompt),
-    caption: buildCaption(parsed, article?.category, postCopy),
+    // The account's own tags reach the published caption here. The prompt asks
+    // the model for them too, but this function rebuilds the hashtag line from
+    // scratch, so anything not passed in at this point is discarded.
+    caption: buildCaption(parsed, article?.category, postCopy, account?.hashtagExtra),
   };
 
   return {

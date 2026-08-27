@@ -12,6 +12,9 @@ require.cache[svcPath] = {
   id: svcPath, filename: svcPath, loaded: true,
   exports: {
     runPipeline: async () => { calls++; if (nextResult instanceof Error) throw nextResult; return nextResult; },
+    // With no account named the trigger fans out; both paths must be stubbed or
+    // the endpoint would reach the real scheduler.
+    runAllAccounts: async () => { calls++; if (nextResult instanceof Error) throw nextResult; return nextResult; },
     startScheduler: () => ({}),
     stopScheduler: () => ({}),
     getStatus: () => ({ running: true, lastResult }),

@@ -1,31 +1,33 @@
 const express = require('express');
 const router = express.Router();
-const { runPipeline, startScheduler, stopScheduler, getStatus, setLastResult } = require('../services/scheduler');
+const { runPipeline, runAllAccounts, startScheduler, stopScheduler, getStatus, setLastResult } = require('../services/scheduler');
+const { getAccount } = require('../services/accounts');
+const { requireApiKey, withAccount } = require('../middleware/auth');
 
 router.get('/status', (req, res) => {
   res.json(getStatus());
 });
 
-router.post('/start', (req, res) => {
+router.post('/start', requireApiKey, (req, res) => {
   const { cronExpression } = req.body;
   if (!cronExpression) return res.status(400).json({ error: 'cronExpression is required' });
   const status = startScheduler(cronExpression);
   res.json({ success: true, status });
 });
 
-router.post('/stop', (req, res) => {
+router.post('/stop', requireApiKey, (req, res) => {
   const status = stopScheduler();
   res.json({ success: true, status });
 });
 
-router.post('/run', async (req, res) => {
+router.post('/run', requireApiKey, withAccount(async (req, res, account) => {
   try {
-    const result = await runPipeline({ force: true });
+    const result = await runPipeline({ force: true, trigger: 'manual', account });
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // External trigger for the GitHub Actions scheduler.
 //
@@ -49,7 +51,15 @@ router.post('/trigger', (req, res) => {
 
   res.status(202).json({ accepted: true, startedAt: new Date().toISOString() });
 
-  runPipeline()
+  // An account slug may be named here because this endpoint is gated on the
+  // trigger secret, unlike the human-facing routes. With none named it fans out
+  // to every active account, so one scheduled call still covers the whole slot.
+  const only = typeof req.body?.account === 'string' ? req.body.account : null;
+  const run = only
+    ? getAccount(only).then((account) => runPipeline({ account, trigger: 'external' }))
+    : runAllAccounts({ trigger: 'external' });
+
+  run
     .then((result) => {
       // A skipped run is not a failure — it means something already posted in
       // this slot. Record it so the caller can tell it apart from a timeout.

@@ -1,47 +1,199 @@
 const axios = require('axios');
 const xml2js = require('xml2js');
 const cheerio = require('cheerio');
-const { createClient } = require('@supabase/supabase-js');
+// The shared client, not a second one built here on the anon key. That private
+// client predated services/supabase.js and would have kept dedupe running on a
+// key that reads nothing once RLS is enabled — and outside the reach of the
+// production fail-closed check.
+const { getSupabase } = require('./supabase');
 
-let supabase = null;
+// Dedupe memory is per account. A story one account posted stays available to
+// every other account, so each of these queries is scoped by slug — reads,
+// writes and the retention sweep alike. An unscoped query here would silently
+// restore the old global behaviour the moment a second account exists.
+const RETENTION_PER_ACCOUNT = 100;
 
-function getSupabase() {
-  if (!supabase && process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
-    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+function requireAccount(account, fn) {
+  if (!account?.slug) {
+    throw new Error(`[News] ${fn} requires an account (see services/accounts.js)`);
   }
-  return supabase;
+  return account.slug;
 }
 
-async function loadHistory() {
+/**
+ * URLs this account has already posted.
+ *
+ * A failed read used to return an empty set, which reads as "nothing has been
+ * posted" and invites publishing a story again. An Instagram post cannot be
+ * edited or quietly removed, so a duplicate on the grid is permanent while a
+ * failed run is not. This throws instead.
+ */
+async function loadHistory(account) {
+  const slug = requireAccount(account, 'loadHistory');
   const db = getSupabase();
   if (!db) return new Set();
-  try {
-    const { data } = await db.from('posted_urls').select('url');
-    return new Set((data || []).map((r) => r.url));
-  } catch { return new Set(); }
+
+  const { data, error } = await db
+    .from('posted_urls')
+    .select('url')
+    .eq('account', slug);
+
+  if (error) {
+    throw new Error(
+      `[News] could not read posting history for "${slug}" (${error.message}). ` +
+      'Refusing to continue: an empty history here would republish stories.',
+    );
+  }
+  return new Set((data || []).map((r) => r.url));
 }
 
-async function markPosted(url) {
+/**
+ * URLs another account posted recently.
+ *
+ * Dedupe is per account by design, so nothing stops two handles running the same
+ * headline in the same cycle. That is an overlap policy question, not a dedupe
+ * one, and it gets its own knob: a story another account published inside the
+ * cooldown is held back rather than being permanently unavailable.
+ *
+ * Set CROSS_ACCOUNT_COOLDOWN_HOURS=0 to let accounts overlap freely.
+ */
+const DEFAULT_COOLDOWN_HOURS = 24;
+
+/**
+ * Hours of cross-account cooldown. Only an explicit, valid number disables it.
+ *
+ * Number('') is 0 and Number('abc') is NaN, so the obvious parse turns a typo,
+ * an empty variable or a negative value into "protection off" — silently, and
+ * in the direction that lets two handles post the same headline.
+ */
+function cooldownHours() {
+  const raw = process.env.CROSS_ACCOUNT_COOLDOWN_HOURS;
+  if (raw === undefined || raw === null || String(raw).trim() === '') return DEFAULT_COOLDOWN_HOURS;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    console.warn(
+      `[News] ignoring invalid CROSS_ACCOUNT_COOLDOWN_HOURS="${raw}" — ` +
+      `falling back to ${DEFAULT_COOLDOWN_HOURS}h rather than disabling the cooldown.`,
+    );
+    return DEFAULT_COOLDOWN_HOURS;
+  }
+  return n;
+}
+
+// Stories this process published but could not record. A failed write means the
+// database cannot warn the next account off, so they are held here for the
+// cooldown window as well. In memory only: it covers the rest of this process,
+// which is what the next account in the same fan-out needs.
+const unrecorded = new Map();
+
+function rememberUnrecorded(url) {
+  unrecorded.set(url, Date.now());
+}
+
+function pruneUnrecorded(windowMs) {
+  const cutoff = Date.now() - windowMs;
+  for (const [url, at] of unrecorded) if (at < cutoff) unrecorded.delete(url);
+}
+
+async function loadCrossAccountRecent(account) {
+  const slug = requireAccount(account, 'loadCrossAccountRecent');
+  const hours = cooldownHours();
+  if (hours === 0) return new Set();
+
+  pruneUnrecorded(hours * 3600 * 1000);
+
+  const db = getSupabase();
+  // With no database the in-memory set is the only protection there is.
+  if (!db) return new Set(unrecorded.keys());
+
+  const since = new Date(Date.now() - hours * 3600 * 1000).toISOString();
+  const { data, error } = await db
+    .from('posted_urls')
+    .select('url')
+    .neq('account', slug)
+    .gte('posted_at', since);
+
+  if (error) {
+    // Same reasoning as loadHistory: reading this as "nothing to avoid" is how
+    // two handles end up posting the same headline an hour apart.
+    throw new Error(
+      `[News] could not read the cross-account cooldown for "${slug}" (${error.message}). ` +
+      'Refusing to continue rather than risk two accounts posting the same story.',
+    );
+  }
+  return new Set([...(data || []).map((r) => r.url), ...unrecorded.keys()]);
+}
+
+/**
+ * Everything this account must not pick: its own history, plus whatever another
+ * account posted inside the cooldown window.
+ */
+async function loadExclusions(account) {
+  const [own, others] = await Promise.all([
+    loadHistory(account),
+    loadCrossAccountRecent(account),
+  ]);
+  for (const url of others) own.add(url);
+  return own;
+}
+
+async function markPosted(url, account) {
+  const slug = requireAccount(account, 'markPosted');
   const db = getSupabase();
   if (!db) {
-    console.log('[Supabase] Not configured — skipping markPosted. Check SUPABASE_URL and SUPABASE_ANON_KEY env vars.');
-    return;
+    console.log('[Supabase] Not configured — skipping markPosted. Check SUPABASE_URL and the service-role key.');
+    return { ok: false, skipped: true };
   }
   try {
-    console.log(`[Supabase] Saving URL: ${url}`);
-    const { error } = await db.from('posted_urls').upsert({ url, posted_at: new Date().toISOString() });
+    console.log(`[Supabase] Saving URL for ${slug}: ${url}`);
+    // Conflict target is the (account, url) unique index, so re-marking the same
+    // story for the same account updates rather than erroring, and the same URL
+    // can still be recorded against a different account.
+    const { error } = await db
+      .from('posted_urls')
+      .upsert(
+        { url, account: slug, posted_at: new Date().toISOString() },
+        { onConflict: 'account,url' },
+      );
     if (error) {
-      console.error('[Supabase] upsert error:', error.message);
-    } else {
-      console.log('[Supabase] URL saved successfully.');
+      // Stop here. The carousel is already on Instagram but this URL is not in
+      // the history, so the story can be picked again. Trimming the oldest rows
+      // on top of that would discard memory that is still doing its job and
+      // widen the window for a repost. Nothing to do but say so loudly.
+      console.error(
+        `[Supabase] ✗ FAILED to record ${url} for ${slug}: ${error.message}\n` +
+        '           The post went out but is NOT in the dedupe history — it can be picked again. ' +
+        'Skipping retention so no further memory is lost.',
+      );
+      rememberUnrecorded(url);
+      return { ok: false, error: error.message };
     }
-    const { data } = await db.from('posted_urls').select('id').order('posted_at', { ascending: true });
-    if (data && data.length > 100) {
-      const idsToDelete = data.slice(0, data.length - 100).map((r) => r.id);
-      await db.from('posted_urls').delete().in('id', idsToDelete);
+    console.log('[Supabase] URL saved successfully.');
+
+    // Retention is per account: one busy account must not evict another's memory.
+    const { data, error: readErr } = await db
+      .from('posted_urls')
+      .select('id')
+      .eq('account', slug)
+      .order('posted_at', { ascending: true });
+    if (readErr) {
+      // The URL is recorded, which is the part that matters. Leaving the table
+      // slightly over the cap is harmless.
+      console.error('[Supabase] retention read error:', readErr.message);
+      return { ok: true, retentionSkipped: true };
     }
+    if (data && data.length > RETENTION_PER_ACCOUNT) {
+      const idsToDelete = data.slice(0, data.length - RETENTION_PER_ACCOUNT).map((r) => r.id);
+      // Scoped as well as id-filtered. The ids came from a scoped read, so this
+      // is belt and braces — but a delete that is only transitively safe is one
+      // refactor away from clearing another account's memory.
+      await db.from('posted_urls').delete().eq('account', slug).in('id', idsToDelete);
+    }
+    return { ok: true };
   } catch (e) {
     console.error('[Supabase] markPosted exception:', e.message);
+    rememberUnrecorded(url);
+    return { ok: false, error: e.message };
   }
 }
 
@@ -320,7 +472,7 @@ async function scrapeArticle(url) {
 }
 
 // ── MAIN EXPORT ──────────────────────────────────────────────────────────────
-async function fetchNewsArticle(topic, exclude = []) {
+async function fetchNewsArticle(topic, exclude = [], account) {
   console.log(`[News] Fetching viral news — topic: "${topic}"`);
 
   // Topic-specific tag feeds (TechCrunch supports tag RSS).
@@ -346,7 +498,7 @@ async function fetchNewsArticle(topic, exclude = []) {
   console.log(`[News] Total raw articles: ${allItems.length}`);
 
   // Filter, deduplicate, score
-  const history    = await loadHistory();
+  const history    = await loadExclusions(account);
   const excludeSet = new Set(exclude);
   const seen       = new Set();
 
@@ -425,16 +577,16 @@ const FALLBACK_TOPICS = [
 ];
 let fallbackTopicIdx = 0;
 
-async function fetchTrendingFallback() {
+async function fetchTrendingFallback(account) {
   const topic = FALLBACK_TOPICS[fallbackTopicIdx % FALLBACK_TOPICS.length];
   fallbackTopicIdx += 1;
   console.log(`[Trending] HN had no scrapable story — falling back to RSS news for "${topic}".`);
-  return fetchNewsArticle(topic);
+  return fetchNewsArticle(topic, [], account);
 }
 
-async function fetchTrendingArticle() {
+async function fetchTrendingArticle(account) {
   console.log('[Trending] Fetching HN front page top stories...');
-  const history = await loadHistory();
+  const history = await loadExclusions(account);
 
   const topItems = await fetchHNTopStories();
 
@@ -459,7 +611,7 @@ async function fetchTrendingArticle() {
 
   console.log(`[Trending] Top candidate: "${scored[0]?.title}" (score: ${scored[0]?.score})`);
 
-  if (!scored.length) return fetchTrendingFallback();
+  if (!scored.length) return fetchTrendingFallback(account);
 
   // Try to scrape top candidates
   for (const item of scored.slice(0, 8)) {
@@ -482,7 +634,7 @@ async function fetchTrendingArticle() {
     } catch {}
   }
 
-  return fetchTrendingFallback();
+  return fetchTrendingFallback(account);
 }
 
 // ── VISA / IMMIGRATION NEWS (Indian workers + students) ─────────────────────
@@ -530,13 +682,13 @@ function scoreVisaArticle(item) {
   return Math.round(score);
 }
 
-async function fetchVisaArticle() {
+async function fetchVisaArticle(account) {
   console.log('[Visa] Fetching immigration news for Indian workers and students...');
   const results = await Promise.all(VISA_FEEDS.map(fetchRSSFeed));
   const allItems = results.flat();
   console.log(`[Visa] Total raw articles: ${allItems.length}`);
 
-  const history = await loadHistory();
+  const history = await loadExclusions(account);
   const seen = new Set();
   const THIS_YEAR = new Date().getFullYear();
 
@@ -623,13 +775,13 @@ function scoreTrumpArticle(item) {
   return Math.round(score);
 }
 
-async function fetchTrumpArticle() {
+async function fetchTrumpArticle(account) {
   console.log('[Trump] Fetching major US politics news...');
   const results = await Promise.all(TRUMP_FEEDS.map(fetchRSSFeed));
   const allItems = results.flat();
   console.log(`[Trump] Total raw articles: ${allItems.length}`);
 
-  const history = await loadHistory();
+  const history = await loadExclusions(account);
   const seen = new Set();
   const THIS_YEAR = new Date().getFullYear();
 
@@ -677,4 +829,4 @@ async function fetchTrumpArticle() {
 }
 
 
-module.exports = { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, scoreVisaArticle, scoreTrumpArticle, hasRealContent, stripBoilerplate, markPosted };
+module.exports = { loadHistory, cooldownHours, __rememberUnrecorded: rememberUnrecorded, __clearUnrecorded: () => unrecorded.clear(), loadCrossAccountRecent, loadExclusions, fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, scoreVisaArticle, scoreTrumpArticle, hasRealContent, stripBoilerplate, markPosted };

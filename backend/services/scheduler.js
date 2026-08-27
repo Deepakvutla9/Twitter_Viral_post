@@ -1,8 +1,12 @@
 const cron = require('node-cron');
+const fs = require('fs');
+const path = require('path');
 const { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, markPosted } = require('./newsScraper');
 const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
+const { getAccount, listActiveAccounts } = require('./accounts');
+const { isDueWithin, searchReachability, parseCron } = require('./cronMatch');
 
 let activeJob = null;
 
@@ -36,10 +40,16 @@ function slotPlan() {
  *
  * CONTENT_SOURCE=tech|visa|trump pins it for manual runs.
  */
-function pickSource(now = new Date()) {
+function pickSource(now = new Date(), account = null) {
   const forced = process.env.CONTENT_SOURCE;
   if (SOURCES.includes(forced)) return forced;
-  const plan = slotPlan();
+  // The account's own plan wins. Two accounts sharing one global SLOT_PLAN would
+  // draw from the same pool in the same slot, which is how two handles end up
+  // posting the same story on the same schedule.
+  const own = Array.isArray(account?.slotPlan)
+    ? account.slotPlan.filter((s) => SOURCES.includes(s))
+    : [];
+  const plan = own.length ? own : slotPlan();
   return plan[Math.floor(now.getUTCHours() / 6) % plan.length];
 }
 
@@ -48,8 +58,9 @@ function pickSource(now = new Date()) {
 // fires, both would run and we'd double-post. This guard keeps only the first
 // one in any 30-minute window; manual runs from the UI pass force:true.
 const MIN_GAP_MS = 30 * 60 * 1000;
-let lastStartedAt = 0;
-let inFlight = false;
+// Keyed by account slug — see runPipeline.
+const lastStartedAt = new Map();
+const inFlight = new Set();
 
 let jobStatus = {
   running: false,
@@ -58,26 +69,44 @@ let jobStatus = {
   lastResult: null,
   nextTopic: 'HN Trending',
   totalPosted: 0,
+  // Set by runAllAccounts. lastResult describes one account; this describes the
+  // whole slot, which is what an external caller has to wait for.
+  lastFanOut: null,
 };
 
-async function runPipeline({ force = false } = {}) {
-  if (inFlight) {
-    console.log('[Pipeline] Skipped — a run is already in flight');
-    return { success: false, skipped: true, reason: 'in-flight' };
+/**
+ * One run, for one account.
+ *
+ * The guards are keyed by account slug rather than held as single values. They
+ * exist to stop the external trigger and the in-process cron double-posting the
+ * same account, which is a per-account question — one account being mid-run is
+ * no reason to skip another. A shared guard would silently serialise the fan-out
+ * in runAllAccounts into posting one account per slot.
+ */
+async function runPipeline({ force = false, account: given, slot = null, trigger = 'unknown' } = {}) {
+  // Resolved before the guards, since which account this is decides which guard
+  // applies. A broken account also fails here, before any scraping or model call.
+  const account = given || await getAccount();
+  const slug = account.slug;
+
+  if (inFlight.has(slug)) {
+    console.log(`[Pipeline] Skipped ${slug} — a run is already in flight`);
+    return { success: false, skipped: true, reason: 'in-flight', account: slug };
   }
-  if (!force && Date.now() - lastStartedAt < MIN_GAP_MS) {
-    const mins = Math.round((Date.now() - lastStartedAt) / 60000);
-    console.log(`[Pipeline] Skipped — last run started ${mins}m ago (double-fire guard)`);
-    return { success: false, skipped: true, reason: 'debounced' };
+  const startedAt = lastStartedAt.get(slug) || 0;
+  if (!force && Date.now() - startedAt < MIN_GAP_MS) {
+    const mins = Math.round((Date.now() - startedAt) / 60000);
+    console.log(`[Pipeline] Skipped ${slug} — last run started ${mins}m ago (double-fire guard)`);
+    return { success: false, skipped: true, reason: 'debounced', account: slug };
   }
 
-  lastStartedAt = Date.now();
-  inFlight = true;
+  lastStartedAt.set(slug, Date.now());
+  inFlight.add(slug);
   jobStatus.lastRun = new Date().toISOString();
 
   try {
-    const source = pickSource();
-    console.log(`[Pipeline] Source for this run: ${source}`);
+    const source = pickSource(new Date(), account);
+    console.log(`[Pipeline] Source for this run: ${source} (as ${account.handle}, trigger: ${trigger}${slot ? `, slot ${slot}` : ''})`);
 
     // Visa news falls back to the tech pool rather than failing the slot — a
     // missed post is worse than an off-topic one, and the feeds occasionally
@@ -89,17 +118,17 @@ async function runPipeline({ force = false } = {}) {
     let article;
     if (FETCHERS[source]) {
       try {
-        article = await FETCHERS[source]();
+        article = await FETCHERS[source](account);
       } catch (err) {
         console.warn(`[Pipeline] ${source} pool empty (${err.message}) — falling back to tech.`);
-        article = await fetchTrendingArticle();
+        article = await fetchTrendingArticle(account);
       }
     } else {
-      article = await fetchTrendingArticle();
+      article = await fetchTrendingArticle(account);
     }
     console.log(`[Pipeline] Selected: "${article.title}" (${article.points} pts, ${article.category || 'tech'})`);
 
-    const { slides, caption, imagePrompt, quality } = await generateCarouselSlides(article, article.title);
+    const { slides, caption, imagePrompt, quality } = await generateCarouselSlides(article, article.title, account);
     const words = quality?.checks?.bodyWordCount ?? 0;
     console.log(`[Pipeline] Generated ${slides.length} slides — quality ${quality?.score ?? '?'}/100, ${words}-word context slide`);
 
@@ -116,12 +145,27 @@ async function runPipeline({ force = false } = {}) {
 
     // Pass imagePrompt so slide 2 gets an AI background (HF → Pollinations),
     // falling back to the darkened article photo — matches the generate route.
-    const images = await composeSlideImages(slides, article.ogImage || null, imagePrompt || null);
+    const images = await composeSlideImages(slides, {
+      ogImage: article.ogImage || null,
+      imagePrompt: imagePrompt || null,
+      account,
+    });
     const imagePaths = images.map((i) => i.filepath);
 
-    const postId = await postCarousel(imagePaths, caption);
-    await markPosted(article.url);
+    const postId = await postCarousel(imagePaths, caption, account);
+    const recorded = await markPosted(article.url, account);
     jobStatus.totalPosted++;
+
+    // The post is out. If recording it failed, the database cannot warn the next
+    // account off this story, so the run reports it rather than swallowing it —
+    // and newsScraper holds the URL in memory as a stopgap for the rest of this
+    // process, which is what covers the very next account in the same fan-out.
+    if (recorded && recorded.ok === false && !recorded.skipped) {
+      console.error(
+        `[Pipeline] ⚠ ${slug} published ${postId} but the URL was not recorded: ${recorded.error}. ` +
+        'Another account could pick the same story once this process restarts.',
+      );
+    }
 
     const result = {
       success: true,
@@ -129,14 +173,286 @@ async function runPipeline({ force = false } = {}) {
       topic: article.title,
       article: article.title,
       postedAt: new Date().toISOString(),
+      account: slug,
+      recorded: !(recorded && recorded.ok === false && !recorded.skipped),
     };
     jobStatus.lastResult = result;
 
     console.log(`[Pipeline] Posted: ${postId} (total: ${jobStatus.totalPosted})`);
     return result;
   } finally {
-    inFlight = false;
+    inFlight.delete(slug);
   }
+}
+
+// Runs are sequential with a gap between them, never parallel. Groq's free tier
+// allows 8000 tokens per minute and one generation costs roughly 4000, so two
+// accounts firing together would rate-limit each other into the backoff path for
+// no gain. Sequential also keeps the image uploads and Graph API calls apart.
+/**
+ * A bounded number from the environment, or the default.
+ *
+ * Number('') is 0, Number('abc') is NaN and Number('Infinity') is Infinity —
+ * and an infinite due window makes the matcher's loop non-terminating, while a
+ * malformed stagger silently removes the spacing the Groq budget depends on.
+ * Neither should be reachable by a typo.
+ */
+function boundedEnv(name, fallback, min, max) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || String(raw).trim() === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < min || n > max) {
+    console.warn(`[Scheduler] ignoring invalid ${name}="${raw}" — using ${fallback} (allowed ${min}-${max})`);
+    return fallback;
+  }
+  return n;
+}
+
+const ACCOUNT_STAGGER_MS = boundedEnv('ACCOUNT_STAGGER_MS', 60000, 0, 10 * 60 * 1000);
+// How late a trigger may arrive and still count for the slot it was aimed at.
+// Matches the double-fire guard window.
+const DUE_WINDOW_MINUTES = boundedEnv('DUE_WINDOW_MINUTES', 30, 0, 180);
+/**
+ * When fan-out is actually invoked. An account whose schedule never lines up
+ * with this can never run, however valid its own cron is.
+ *
+ * Read from the workflow that does the invoking, so there is one source of
+ * truth rather than two that drift. TRIGGER_CRON overrides it for deployments
+ * driven by something else, and a mismatch between the two is reported rather
+ * than silently believed — an override that no longer matches the workflow
+ * produces confident, wrong reachability verdicts.
+ */
+const MANIFEST_PATH = path.join(__dirname, '..', 'trigger-schedule.json');
+
+function schedulesFromManifest() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+    return (parsed.schedules || []).filter((c) => parseCron(c));
+  } catch {
+    return [];
+  }
+}
+
+function resolveTriggerCron() {
+  // render.yaml sets rootDir: backend, so .github is not deployed and the
+  // workflow cannot be read at runtime. The manifest is generated from it by
+  // scripts/sync-trigger-schedule.js and checked in CI, so it ships inside the
+  // deployed directory and a workflow change also redeploys the backend.
+  const fromManifest = schedulesFromManifest();
+  const override = process.env.TRIGGER_CRON;
+
+  if (!override) {
+    if (fromManifest.length) return fromManifest;
+    console.warn(
+      '[Scheduler] no readable trigger-schedule.json — assuming 0 */6 * * *. ' +
+      'Run: node scripts/sync-trigger-schedule.js',
+    );
+    return ['0 */6 * * *'];
+  }
+
+  const list = override.split(';').map((c) => c.trim()).filter(Boolean);
+  const valid = list.filter((c) => parseCron(c));
+  if (valid.length !== list.length) {
+    throw new Error(
+      `Refusing to start: TRIGGER_CRON="${override}" is not a valid schedule. ` +
+      'Reachability is judged against it, so an unreadable value would produce ' +
+      'confident wrong verdicts about which accounts can ever post.',
+    );
+  }
+
+  const agrees = !fromManifest.length
+    || JSON.stringify(valid) === JSON.stringify(fromManifest);
+  if (agrees) return valid;
+
+  // A disagreement is either a real external trigger or a stale override, and
+  // the two are indistinguishable from here. Warning and believing it lets a
+  // stale value quietly declare healthy accounts unreachable, so it has to be
+  // stated deliberately.
+  if (process.env.TRIGGER_SOURCE !== 'external') {
+    throw new Error(
+      `Refusing to start: TRIGGER_CRON (${valid.join(', ')}) disagrees with the ` +
+      `workflow schedule (${fromManifest.join(', ')}). If something other than the ` +
+      'workflow really drives this deployment, set TRIGGER_SOURCE=external to say so. ' +
+      'Otherwise fix TRIGGER_CRON or re-run scripts/sync-trigger-schedule.js.',
+    );
+  }
+  console.warn(
+    `[Scheduler] TRIGGER_SOURCE=external — reachability follows TRIGGER_CRON ` +
+    `(${valid.join(', ')}), not the workflow (${fromManifest.join(', ')}).`,
+  );
+  return valid;
+}
+
+const TRIGGER_CRON = resolveTriggerCron();
+let fanOutInFlight = false;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * One slot, every active account.
+ *
+ * An account that throws must not take the rest of the slot down with it: a
+ * dead token on one handle is not a reason for the others to miss a post. Each
+ * result is collected either way, so the caller can tell "posted", "skipped by
+ * the guard" and "failed" apart instead of seeing one aggregate error.
+ */
+async function runAllAccounts({
+  slot = null, trigger = 'fan-out', force = false,
+  stagger = ACCOUNT_STAGGER_MS, now = new Date(),
+} = {}) {
+  // The in-process cron and the external trigger aim at the same slot, and the
+  // per-account guards do not stop two fan-outs interleaving: one would run
+  // account A while the other runs account B, which breaks the sequential
+  // spacing the Groq budget depends on and leaves lastFanOut describing a mix
+  // of both. Only one fan-out at a time.
+  if (fanOutInFlight) {
+    console.log('[Fan-out] Skipped — a fan-out is already running');
+    return { skipped: true, reason: 'fan-out-in-flight', accounts: 0, posted: 0, failed: 0, results: [] };
+  }
+  fanOutInFlight = true;
+
+  try {
+    return await fanOut({ slot, trigger, force, stagger, now });
+  } finally {
+    fanOutInFlight = false;
+  }
+}
+
+async function fanOut({ slot, trigger, force, stagger, now }) {
+  const active = await listActiveAccounts();
+
+  // An account only runs in the slots its own cron names, in its own timezone.
+  // A manual run ignores the schedule, which is the point of a manual run.
+  const notDue = [];
+  const accounts = force ? active : active.filter((a) => {
+    if (isDueWithin(a.cron, { timeZone: a.timezone, now, windowMinutes: DUE_WINDOW_MINUTES })) return true;
+    notDue.push(a.slug);
+    return false;
+  });
+
+  // Once accounts carry their own schedules, "nothing due" is ordinary: a daily
+  // account is legitimately idle at three of the four slots. What is NOT
+  // ordinary is a schedule that can never coincide with the trigger at all —
+  // that account looks configured and silently never posts, which is the thing
+  // worth failing over.
+  // Only a completed search counts. An exhausted budget means "not found in the
+  // time available", which is not evidence that the account is broken, and
+  // reporting it as such would fail slots over a schedule that is fine.
+  const unreachable = notDue.filter((slug) => {
+    const a = active.find((x) => x.slug === slug);
+    const { reachable, exhaustive } = searchReachability(a.cron, {
+      timeZone: a.timezone,
+      triggerCron: TRIGGER_CRON,
+      windowMinutes: DUE_WINDOW_MINUTES,
+      now,
+    });
+    return !reachable && exhaustive;
+  });
+
+  if (notDue.length) {
+    console.log(`[Fan-out] Not due this slot: ${notDue.join(', ')}`);
+  }
+  if (unreachable.length) {
+    console.error(
+      `[Fan-out] ✗ Never reachable with trigger "${TRIGGER_CRON.join(", ")}": ${unreachable.join(', ')}. ` +
+      'These accounts will never post until their cron or the trigger schedule changes.',
+    );
+  }
+
+  if (!accounts.length) {
+    // No active accounts at all is a broken deployment. Nothing due this slot,
+    // with every account reachable, is a normal quiet slot.
+    const why = !active.length
+      ? 'no active accounts are configured'
+      : unreachable.length
+        ? `${unreachable.length} account(s) can never be reached by trigger "${TRIGGER_CRON.join(", ")}"`
+        : null;
+    if (why) console.error(`[Fan-out] ✗ Nothing to run — ${why}`);
+    else console.log(`[Fan-out] Nothing due this slot (${active.length} active, all reachable)`);
+
+    jobStatus.lastFanOut = {
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      trigger,
+      accounts: 0,
+      activeAccounts: active.length,
+      notDue,
+      unreachable,
+      posted: 0,
+      skipped: 0,
+      failed: 0,
+      unrecorded: 0,
+      error: why,
+      results: [],
+    };
+    return { accounts: 0, posted: 0, skipped: 0, failed: 0, results: [], unreachable, error: why };
+  }
+
+  console.log(`[Fan-out] ${accounts.length} account(s) due, ${stagger}ms apart`);
+
+  // Reported separately from lastResult, which only ever describes one account.
+  // The external trigger polls this to know the whole slot is done: watching
+  // lastResult, it would see the first account post and stop polling, and the
+  // polling is what keeps a free-tier instance awake for the accounts still to
+  // come. A sleeping instance finishes nothing.
+  jobStatus.lastFanOut = {
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    trigger,
+    accounts: accounts.length,
+    results: [],
+  };
+
+  const results = [];
+  for (let i = 0; i < accounts.length; i += 1) {
+    const account = accounts[i];
+    if (i > 0 && stagger > 0) await sleep(stagger);
+    try {
+      results.push(await runPipeline({ account, slot, trigger, force }));
+    } catch (err) {
+      console.error(`[Fan-out] ${account.slug} failed: ${err.message}`);
+      results.push({ success: false, account: account.slug, error: err.message });
+    }
+  }
+
+  const summary = {
+    accounts: accounts.length,
+    posted: results.filter((r) => r.success).length,
+    skipped: results.filter((r) => r.skipped).length,
+    failed: results.filter((r) => !r.success && !r.skipped).length,
+    unrecorded: results.filter((r) => r.recorded === false).length,
+    unreachable,
+    results,
+  };
+
+  jobStatus.lastFanOut = {
+    ...jobStatus.lastFanOut,
+    finishedAt: new Date().toISOString(),
+    activeAccounts: active.length,
+    dueAccounts: accounts.length,
+    notDue,
+    unreachable,
+    // Reported whether or not anything else posted. An unreachable account is a
+    // handle that will never publish again; another account succeeding in the
+    // same slot says nothing about it and must not mask it.
+    error: unreachable.length
+      ? `${unreachable.length} account(s) can never be reached by trigger "${TRIGGER_CRON.join(', ')}": ${unreachable.join(', ')}`
+      : null,
+    posted: summary.posted,
+    skipped: summary.skipped,
+    failed: summary.failed,
+    unrecorded: summary.unrecorded,
+    results: results.map((r) => ({
+      account: r.account,
+      outcome: r.success ? 'posted' : r.skipped ? 'skipped' : 'failed',
+      reason: r.reason || r.error || null,
+      postId: r.postId || null,
+      recorded: r.recorded !== false,
+    })),
+  };
+
+  console.log(`[Fan-out] ${summary.posted} posted, ${summary.skipped} skipped, ${summary.failed} failed, ${summary.unrecorded} unrecorded`);
+  return summary;
 }
 
 function startScheduler(cronExpression) {
@@ -147,7 +463,7 @@ function startScheduler(cronExpression) {
 
   activeJob = cron.schedule(cronExpression, async () => {
     try {
-      await runPipeline();
+      await runAllAccounts({ trigger: 'cron' });
     } catch (err) {
       console.error('[Scheduler] Pipeline error:', err.message);
       jobStatus.lastResult = { success: false, error: err.message, failedAt: new Date().toISOString() };
@@ -178,4 +494,4 @@ function autoResume() {
   startScheduler(defaultCron);
 }
 
-module.exports = { runPipeline, startScheduler, stopScheduler, getStatus, setLastResult, autoResume, pickSource, slotPlan };
+module.exports = { runPipeline, runAllAccounts, getTriggerCron: () => [...TRIGGER_CRON], startScheduler, stopScheduler, getStatus, setLastResult, autoResume, pickSource, slotPlan };

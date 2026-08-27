@@ -14,6 +14,19 @@ require.cache[svcPath] = {
   },
 };
 
+// The route resolves an account before it can check anything, so stub that too.
+const acctPath = require.resolve('../services/accounts.js');
+require.cache[acctPath] = {
+  id: acctPath, filename: acctPath, loaded: true,
+  exports: {
+    getAccount: async () => ({
+      slug: 'shadesofirony', handle: '@shadesofirony', igUserId: '17841400000000000',
+    }),
+  },
+};
+
+process.env.API_KEY = 'test-key';
+
 const router = require('./instagram');
 const app = express();
 app.use(express.json());
@@ -28,7 +41,7 @@ test.after(() => srv.close());
 
 test('reports 200 and the handle when the token is healthy', async () => {
   tokenResult = { ok: true, id: '1', username: 'shadesofirony', account_type: 'MEDIA_CREATOR' };
-  const res = await fetch(`${base}/token`);
+  const res = await fetch(`${base}/token`, { headers: { 'x-api-key': 'test-key' } });
   assert.equal(res.status, 200);
   assert.equal((await res.json()).username, 'shadesofirony');
 });

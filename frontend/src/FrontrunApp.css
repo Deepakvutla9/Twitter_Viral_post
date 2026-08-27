@@ -1631,3 +1631,76 @@ button {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ── account selector ─────────────────────────────────────────────────────── */
+/* Which handle a post goes out under is the most consequential thing on this
+   screen, so it sits in the top bar rather than behind a settings panel. */
+.fr-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.fr-account-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.fr-account-select {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  max-width: 260px;
+}
+
+.fr-account-select:focus-visible,
+.fr-key-form input:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.fr-key-form {
+  display: flex;
+  gap: 6px;
+}
+
+.fr-key-form input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  width: 180px;
+}
+
+.fr-key-form button,
+.fr-key-clear {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.fr-key-form button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 900px) {
+  .fr-account { width: 100%; margin-left: 0; }
+  .fr-account-select { flex: 1; max-width: none; }
+}

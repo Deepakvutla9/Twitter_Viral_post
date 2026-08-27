@@ -4,6 +4,10 @@ const assert = require('node:assert/strict');
 // Stub every downstream module before requiring the scheduler, so the pipeline
 // does no real work and never touches the Instagram API.
 let posts = 0;
+const STUB_ACCOUNT = Object.freeze({
+  slug: 'shadesofirony', handle: '@shadesofirony', igUserId: '17841400000000000',
+  accent: '#00e5ff', slotPlan: ['tech'], voice: {}, active: true,
+});
 const goodQuality = { score: 100, warnings: [], checks: { bodyLengthOk: true, bodyWordCount: 88 } };
 let nextQuality = goodQuality;
 const stubs = {
@@ -28,6 +32,10 @@ const stubs = {
     postCarousel: async () => { posts++; return 'STUB_POST_ID'; },
     checkToken: async () => ({ ok: true }),
     refreshToken: async () => ({ ok: true }),
+  },
+  './accounts.js': {
+    getAccount: async () => STUB_ACCOUNT,
+    listActiveAccounts: async () => [STUB_ACCOUNT],
   },
 };
 for (const [rel, exports] of Object.entries(stubs)) {

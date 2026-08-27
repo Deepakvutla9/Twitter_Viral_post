@@ -4,8 +4,12 @@ const cors = require('cors');
 const path = require('path');
 const { cleanOldImages } = require('./services/imageComposer');
 const { autoResume } = require('./services/scheduler');
-const { postCarousel, checkToken, refreshToken } = require('./services/instagram');
+const { postCarousel } = require('./services/instagram');
 const postQueue = require('./services/postQueue');
+const { assertProductionSafe, isServiceRole } = require('./services/supabase');
+const { getAccount } = require('./services/accounts');
+const { keepTokensFresh } = require('./services/tokenMaintenance');
+const { requireApiKey } = require('./middleware/auth');
 
 const scrapeRoutes         = require('./routes/scrape');
 const generateRoutes       = require('./routes/generate');
@@ -14,25 +18,45 @@ const instagramRoutes      = require('./routes/instagram');
 const schedulerRoutes      = require('./routes/scheduler');
 const trendingRoutes       = require('./routes/trending');
 const queueRoutes          = require('./routes/queue');
+const accountRoutes        = require('./routes/accounts');
 
 const app = express();
+// An allowlist once there is a key worth stealing. Left open when unset so a
+// local frontend still works, but production says so out loud rather than
+// quietly serving every origin.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',').map((o) => o.trim()).filter(Boolean);
+if (!allowedOrigins.length && process.env.NODE_ENV === 'production') {
+  console.warn(
+    '[CORS] ALLOWED_ORIGINS is unset — every origin may call this API. ' +
+    'Set it to the frontend URL.',
+  );
+}
 app.use(cors({
-  origin: '*',
+  origin: allowedOrigins.length ? allowedOrigins : '*',
   methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-trigger-secret'],
 }));
 app.use(express.json());
 
 // Serve generated slide images
 app.use('/temp', express.static(path.join(__dirname, 'temp')));
 
-app.use('/api/scrape', scrapeRoutes);
-app.use('/api/generate', generateRoutes);
-app.use('/api/generate-custom', generateCustomRoutes);
-app.use('/api/instagram', instagramRoutes);
+// The scheduler router is mounted unauthenticated because two of its routes
+// carry their own credentials or none by design: /trigger checks the trigger
+// secret itself, and /status is polled by the scheduled workflow. The routes
+// inside it that a person drives apply requireApiKey individually.
 app.use('/api/scheduler', schedulerRoutes);
-app.use('/api/trending', trendingRoutes);
-app.use('/api/queue', queueRoutes);
+
+// Everything below either publishes, spends model credit, or names which
+// account to act as. None of it should be reachable without a key.
+app.use('/api/scrape', requireApiKey, scrapeRoutes);
+app.use('/api/generate', requireApiKey, generateRoutes);
+app.use('/api/generate-custom', requireApiKey, generateCustomRoutes);
+app.use('/api/instagram', requireApiKey, instagramRoutes);
+app.use('/api/trending', requireApiKey, trendingRoutes);
+app.use('/api/queue', requireApiKey, queueRoutes);
+app.use('/api/accounts', requireApiKey, accountRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -42,7 +66,10 @@ async function processQueue() {
   for (const item of due) {
     console.log(`[Queue] Firing scheduled post: "${item.title}" (id=${item.id})`);
     try {
-      await postCarousel(item.imagePaths, item.caption);
+      // Queue items predate multi-account and carry no slug yet; they run as
+      // the default account until the queue itself records one.
+      const account = await getAccount(item.accountSlug || undefined);
+      await postCarousel(item.imagePaths, item.caption, account);
       postQueue.updateStatus(item.id, 'posted');
       console.log(`[Queue] ✓ Posted: ${item.id}`);
     } catch (e) {
@@ -58,24 +85,17 @@ setInterval(processQueue, 60 * 1000);
 setInterval(cleanOldImages, 60 * 60 * 1000);
 
 const PORT = process.env.PORT || 3001;
-// Keep the long-lived Instagram token alive. Instagram User tokens last ~60
-// days; refreshing extends them another ~60, so as long as the server runs at
-// least monthly the token never lapses. Runs on startup and every 7 days.
-async function keepTokenFresh() {
-  const tok = await checkToken();
-  if (!tok.ok) {
-    console.warn(`[Instagram] ⚠ TOKEN PROBLEM — posts will fail until fixed:\n           ${tok.error}`);
-    return;
-  }
-  console.log(`[Instagram] Token OK — posting as @${tok.username}`);
-  const refreshed = await refreshToken();
-  if (!refreshed.ok) console.warn(`[Instagram] token refresh skipped: ${refreshed.error}`);
-}
 
-setInterval(keepTokenFresh, 7 * 24 * 60 * 60 * 1000); // weekly
+// Runs on startup and every 7 days. See services/tokenMaintenance.js.
+setInterval(keepTokensFresh, 7 * 24 * 60 * 60 * 1000); // weekly
+
+// Refuse to start on the anon key in production rather than discovering it as
+// missing configuration in the middle of a scheduled run.
+assertProductionSafe();
 
 app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  await keepTokenFresh();
+  console.log(`[Supabase] ${isServiceRole() ? 'service-role key' : 'anon key / no database'}`);
+  await keepTokensFresh();
   autoResume();
 });
