@@ -12,6 +12,12 @@ import {
   getQueue,
   addToQueue,
   removeFromQueue,
+  getAccounts,
+  getApiKey,
+  setApiKey,
+  hasApiKey,
+  getActiveAccount,
+  setActiveAccount,
 } from './api';
 import './FrontrunApp.css';
 
@@ -78,6 +84,10 @@ export default function FrontrunApp() {
     autopilot: false,
   });
   const [booting, setBooting] = useState(true);
+  const [accounts, setAccounts] = useState([]);
+  const [account, setAccount] = useState(getActiveAccount());
+  const [apiKey, setApiKeyState] = useState(getApiKey());
+  const [keyDraft, setKeyDraft] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -85,6 +95,41 @@ export default function FrontrunApp() {
     const interval = setInterval(refreshSystems, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  // The account list is behind the API key, so it loads once there is one and
+  // reloads when the key changes.
+  useEffect(() => {
+    if (!apiKey) { setAccounts([]); return; }
+    let cancelled = false;
+    getAccounts()
+      .then((list) => {
+        if (cancelled) return;
+        setAccounts(Array.isArray(list) ? list : []);
+        // A stored slug that no longer exists would silently publish as the
+        // default account, so it is cleared rather than carried forward.
+        if (account && !(list || []).some((a) => a.slug === account)) {
+          setAccount('');
+          setActiveAccount('');
+        }
+      })
+      .catch((err) => !cancelled && setError(err.message));
+    return () => { cancelled = true; };
+  }, [apiKey]);
+
+  function saveKey(value) {
+    const next = value.trim();
+    setApiKey(next);
+    setApiKeyState(next);
+    setKeyDraft('');
+    setError(null);
+  }
+
+  function chooseAccount(slug) {
+    setAccount(slug);
+    setActiveAccount(slug);
+  }
+
+  const activeAccount = (accounts || []).find((a) => a.slug === account) || null;
 
   useEffect(() => {
     const timeout = setTimeout(() => setBooting(false), 1250);
@@ -352,6 +397,51 @@ export default function FrontrunApp() {
           <button type="button" onClick={() => pullSignal(false)} disabled={loading.wire}>
             {loading.wire ? 'Pulling' : 'Pull Signal'}
           </button>
+        </div>
+
+        <div className="fr-account">
+          {apiKey ? (
+            <>
+              <label className="fr-account-label" htmlFor="fr-account-select">Publishing as</label>
+              <select
+                id="fr-account-select"
+                className="fr-account-select"
+                value={account}
+                onChange={(event) => chooseAccount(event.target.value)}
+                style={activeAccount ? { borderColor: activeAccount.accent } : undefined}
+              >
+                <option value="">Default account</option>
+                {(accounts || []).map((a) => (
+                  <option key={a.slug} value={a.slug}>
+                    {a.displayName} · {a.handle}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="fr-key-clear"
+                onClick={() => saveKey('')}
+                title="Forget the API key stored in this browser"
+              >
+                Sign out
+              </button>
+            </>
+          ) : (
+            <form
+              className="fr-key-form"
+              onSubmit={(event) => { event.preventDefault(); saveKey(keyDraft); }}
+            >
+              <input
+                type="password"
+                value={keyDraft}
+                onChange={(event) => setKeyDraft(event.target.value)}
+                placeholder="API key"
+                aria-label="API key"
+                autoComplete="off"
+              />
+              <button type="submit" disabled={!keyDraft.trim()}>Unlock</button>
+            </form>
+          )}
         </div>
 
         <nav className="surface-tabs" aria-label="Frontrun surfaces">
