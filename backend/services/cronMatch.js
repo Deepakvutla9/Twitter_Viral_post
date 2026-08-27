@@ -164,9 +164,12 @@ const reachabilityMemo = new Map();
 // Days in the Gregorian cycle, after which weekdays and calendar dates repeat
 // their alignment exactly.
 const GREGORIAN_CYCLE_DAYS = 146097;
-// Four years covers the leap cycle, which is enough whenever weekday alignment
-// is not part of the question.
-const LEAP_CYCLE_DAYS = 366 * 4 + 1;
+// Every calendar date recurs annually except 29 February, and the longest gap
+// between two of those is eight years across a non-leap century — 2096 to 2104.
+// Four years looks sufficient and is not: from March 2099 it misses 2104.
+const CALENDAR_CYCLE_DAYS = 366 * 9;
+// Nothing calendar-bound left to wait for; a year is generous.
+const PLAIN_CYCLE_DAYS = 366 + 1;
 
 const restrictsDayOfWeek = (sets) => sets[4].size < 7;
 const restrictsCalendar = (sets) => sets[2].size !== 31 || sets[3].size !== 12;
@@ -174,16 +177,23 @@ const restrictsCalendar = (sets) => sets[2].size !== 31 || sets[3].size !== 12;
 /**
  * How far ahead a negative result has to look before it means anything.
  *
- * A date-only pattern repeats every four years. But "29 February" and "a Monday"
- * only realign on the 400-year Gregorian cycle — 29 February 2044 is a Monday
- * and the next one is decades away — so a four-year search that finds nothing
- * has proved nothing. The instant budget still bounds the actual work; this only
- * decides how long a search has to run before its silence counts as an answer.
+ * Three cases, each with a different answer:
+ *
+ *   - "29 February" and "a Monday" only realign on the 400-year Gregorian
+ *     cycle. 29 February 2044 is a Monday and the next is decades further on.
+ *   - Calendar dates alone recur annually, except 29 February, which can be
+ *     eight years away across a non-leap century.
+ *   - Times of day recur daily, so there is nothing to wait for.
+ *
+ * The instant budget still bounds the actual work; this only decides how long a
+ * search has to run before its silence counts as an answer.
  */
 function requiredHorizonDays(accountSets, triggerSetsList) {
   const dow = restrictsDayOfWeek(accountSets) || triggerSetsList.some(restrictsDayOfWeek);
   const cal = restrictsCalendar(accountSets) || triggerSetsList.some(restrictsCalendar);
-  return dow && cal ? GREGORIAN_CYCLE_DAYS : LEAP_CYCLE_DAYS;
+  if (dow && cal) return GREGORIAN_CYCLE_DAYS;
+  if (cal) return CALENDAR_CYCLE_DAYS;
+  return PLAIN_CYCLE_DAYS;
 }
 
 // Enumerated rather than scanned minute by minute: a year holds 525,600 minutes

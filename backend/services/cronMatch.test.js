@@ -190,9 +190,9 @@ test('a weekday trigger and a calendar account need the Gregorian cycle', () => 
   const daily = parseCron('0 9 * * *');
 
   assert.equal(requiredHorizonDays(leap, [monday]), 146097, 'weekday x calendar');
-  assert.equal(requiredHorizonDays(leap, [sixHourly]), 1465, 'calendar only');
-  assert.equal(requiredHorizonDays(daily, [sixHourly]), 1465, 'neither');
-  assert.equal(requiredHorizonDays(daily, [monday]), 1465, 'weekday only');
+  assert.ok(requiredHorizonDays(leap, [sixHourly]) >= 366 * 9, 'calendar only, spanning the century gap');
+  assert.equal(requiredHorizonDays(daily, [sixHourly]), 367, 'neither');
+  assert.equal(requiredHorizonDays(daily, [monday]), 367, 'weekday only');
 });
 
 test('a leap-day account on a weekly trigger is found, not condemned', () => {
@@ -226,5 +226,37 @@ test('a dense trigger over the long horizon reports unproven, not unreachable', 
   assert.equal(
     isReachable('0 0 29 2 *', { triggerCron: '*/5 * * * 1', now: at('2026-03-15T00:00:00Z') }),
     true,
+  );
+});
+
+test('a leap day across a non-leap century is still found', () => {
+  // 2100 is not a leap year, so the gap 2096 to 2104 is eight years. A
+  // four-year horizon reported the 2104 occurrence as exhaustively impossible.
+  const out = searchReachability('0 0 29 2 *', {
+    triggerCron: '0 */6 * * *',
+    windowMinutes: 30,
+    now: at('2099-03-01T00:00:00Z'),
+  });
+  assert.deepEqual(out, { reachable: true, exhaustive: true });
+});
+
+test('the horizon matches what the two schedules actually require', () => {
+  const leap = parseCron('0 0 29 2 *');
+  const daily = parseCron('0 9 * * *');
+  const monday = parseCron('0 0 * * 1');
+  const sixHourly = parseCron('0 */6 * * *');
+
+  assert.equal(requiredHorizonDays(leap, [monday]), 146097, 'weekday x calendar');
+  assert.ok(requiredHorizonDays(leap, [sixHourly]) >= 366 * 9, 'calendar spans the century gap');
+  assert.equal(requiredHorizonDays(daily, [sixHourly]), 367, 'times of day need no wait');
+});
+
+test('a calendar negative near a century boundary is still a real negative', () => {
+  // 09:00 never coincides with a six-hourly trigger, whatever the year.
+  assert.deepEqual(
+    searchReachability('0 9 29 2 *', {
+      triggerCron: '0 */6 * * *', windowMinutes: 30, now: at('2099-03-01T00:00:00Z'),
+    }),
+    { reachable: false, exhaustive: true },
   );
 });
