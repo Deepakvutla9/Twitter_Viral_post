@@ -2,14 +2,13 @@ const express = require('express');
 const router = express.Router();
 const { generateCarouselSlides } = require('../services/gemini');
 const { composeSlideImages } = require('../services/imageComposer');
-const { getAccount } = require('../services/accounts');
+const { withAccount } = require('../middleware/auth');
 
-router.post('/', async (req, res) => {
+router.post('/', withAccount(async (req, res, account) => {
   const { article, topic } = req.body;
   if (!article || !topic) return res.status(400).json({ error: 'article and topic are required' });
 
   try {
-    const account = await getAccount();
     const { slides, caption, imagePrompt, quality } = await generateCarouselSlides(article, topic, account);
     const images = await composeSlideImages(slides, {
       ogImage: article.ogImage || null,
@@ -21,6 +20,6 @@ router.post('/', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 module.exports = router;

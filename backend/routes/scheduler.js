@@ -2,31 +2,32 @@ const express = require('express');
 const router = express.Router();
 const { runPipeline, runAllAccounts, startScheduler, stopScheduler, getStatus, setLastResult } = require('../services/scheduler');
 const { getAccount } = require('../services/accounts');
+const { requireApiKey, withAccount } = require('../middleware/auth');
 
 router.get('/status', (req, res) => {
   res.json(getStatus());
 });
 
-router.post('/start', (req, res) => {
+router.post('/start', requireApiKey, (req, res) => {
   const { cronExpression } = req.body;
   if (!cronExpression) return res.status(400).json({ error: 'cronExpression is required' });
   const status = startScheduler(cronExpression);
   res.json({ success: true, status });
 });
 
-router.post('/stop', (req, res) => {
+router.post('/stop', requireApiKey, (req, res) => {
   const status = stopScheduler();
   res.json({ success: true, status });
 });
 
-router.post('/run', async (req, res) => {
+router.post('/run', requireApiKey, withAccount(async (req, res, account) => {
   try {
-    const result = await runPipeline({ force: true, trigger: 'manual' });
+    const result = await runPipeline({ force: true, trigger: 'manual', account });
     res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // External trigger for the GitHub Actions scheduler.
 //
