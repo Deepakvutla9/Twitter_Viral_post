@@ -71,3 +71,62 @@ test('an absurdly long body truncates rather than overflowing', () => {
   assert.equal(fitted.truncated, true);
   assert.ok(fitted.lines.length * fitted.lh <= AVAIL_HEIGHT);
 });
+
+// ── headline fitting ────────────────────────────────────────────────────────
+
+const { fitHeadline } = require('./imageComposer');
+
+const HEAD_BOTTOM = 1080 - 58 - 52;
+const rendered = (r) => r.lines.map((l) => l.map((w) => w.w).join(' ')).join(' ').replace(/\*\*/g, '');
+
+test('the headline that published half-finished now renders whole', () => {
+  // Published as "...free AI-powered study tool for" — the word "students" was
+  // dropped because the wrap produced six lines and the cap was five.
+  const title = 'Adobe launches Acrobat-based Student Spaces, a free AI-powered study tool for students';
+  const fit = fitHeadline(title, HEAD_BOTTOM);
+
+  assert.equal(rendered(fit), title);
+  assert.equal(fit.truncated, false);
+  assert.ok(fit.lines.length > 5, 'and it needed more than the old five-line cap');
+});
+
+test('a headline is never silently shortened', () => {
+  // The old code cut without saying so. Anything dropped now sets truncated.
+  const titles = [
+    'Tim Curry has died',
+    'Nvidia in talks to buy Hugging Face for 13 billion dollars',
+    'France reaches 94.9% fiber coverage in 2026 after a decade of rollout',
+    'US religious freedom panel urges sanctions on RSS members over Mohan Bhagwat visit',
+    'International students hit hard as Australia suddenly halts new visa processing for the year',
+  ];
+  for (const title of titles) {
+    const fit = fitHeadline(title, HEAD_BOTTOM);
+    assert.equal(fit.truncated, false, title);
+    assert.equal(rendered(fit), title, title);
+  }
+});
+
+test('short headlines keep the large type they were designed for', () => {
+  // The fix must not shrink headlines that already fitted, nor blow short ones
+  // up to fill the slide.
+  assert.equal(fitHeadline('Tim Curry has died', HEAD_BOTTOM).size, 96);
+  assert.equal(fitHeadline('Nvidia in talks to buy Hugging Face for 13 billion dollars', HEAD_BOTTOM).size, 72);
+});
+
+test('the type steps down before anything is dropped', () => {
+  // Roughly 220 characters is where nine lines at 72px stop fitting. The old
+  // code would have cut this at five lines; it now shrinks and keeps every word.
+  const long = ('headline words that keep going and going and going '.repeat(5)).trim();
+  const fit = fitHeadline(long, HEAD_BOTTOM);
+
+  assert.ok(fit.size < 72, `expected a smaller size, got ${fit.size}px`);
+  assert.equal(fit.truncated, false);
+  assert.equal(rendered(fit), long);
+});
+
+test('truncation still exists as a last resort, and admits it', () => {
+  const absurd = 'word '.repeat(200).trim();
+  const fit = fitHeadline(absurd, HEAD_BOTTOM);
+  assert.equal(fit.truncated, true, 'something this long cannot fit');
+  assert.equal(fit.size, 46, 'and only after every size was tried');
+});

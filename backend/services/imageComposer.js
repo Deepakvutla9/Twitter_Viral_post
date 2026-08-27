@@ -159,6 +159,65 @@ function renderLinesSimple(lines, x, startY, lineH, fontSize, normalFill, hlFill
   }).join('\n');
 }
 
+// The headline used to pick one of three sizes from the title's character count
+// and then hard-cut anything past a fixed line limit — five lines at the small
+// size. A six-line headline lost its last line silently, which is how
+// "...study tool for students" published as "...study tool for".
+//
+// The limit was arbitrary rather than a real constraint: at 72px, six lines
+// still leave a comfortable gap above the badge. So the line budget is now
+// derived from the space actually available, and the type steps down only when
+// the text genuinely needs it. Truncation is the last resort it should always
+// have been, and it says so in the log when it happens.
+//
+// Everything above the headline has to fit too: the badge pill sits 28px above
+// the tallest glyph, and the brand pill ends at y=96.
+const HEAD_TOP_LIMIT = 96 + 24 + 46 + 28; // logo, gap, badge height, badge gap
+const HEAD_SIZES = [96, 88, 80, 72, 64, 58, 52, 46];
+
+function headlineSteps() {
+  // 1440 keeps the character-per-line ratio the original sizes used: 15 chars at
+  // 96px, 17 at 84, 20 at 72.
+  return HEAD_SIZES.map((size) => ({
+    size,
+    lh: Math.round(size * 1.13),
+    cap: Math.round(size * 0.72),
+    maxChars: Math.round(1440 / size),
+  }));
+}
+
+function fitHeadline(rawTitle, headBottom) {
+  const ladder = headlineSteps();
+
+  // Start where the original design put this title — a short headline is meant
+  // to render large and a long one smaller, and that is a look, not a bug. The
+  // ladder below only ever goes down from here, so the fix changes nothing for
+  // any headline that already fitted.
+  const titleLen = rawTitle.replace(/\*\*/g, '').length;
+  const startSize = titleLen <= 35 ? 96 : titleLen <= 55 ? 88 : 72;
+  const steps = ladder.slice(ladder.findIndex((s) => s.size === startSize));
+
+  for (const step of steps) {
+    const lines = wrapHighlighted(rawTitle, step.maxChars);
+    const available = headBottom - HEAD_TOP_LIMIT - step.cap;
+    const maxLines = Math.floor(available / step.lh) + 1;
+    if (lines.length <= maxLines) {
+      return { lines, size: step.size, lh: step.lh, truncated: false };
+    }
+  }
+
+  const smallest = steps[steps.length - 1];
+  const available = headBottom - HEAD_TOP_LIMIT - smallest.cap;
+  const maxLines = Math.max(1, Math.floor(available / smallest.lh) + 1);
+  const all = wrapHighlighted(rawTitle, smallest.maxChars);
+  return {
+    lines: all.slice(0, maxLines),
+    size: smallest.size,
+    lh: smallest.lh,
+    truncated: all.length > maxLines,
+  };
+}
+
 // ── SHARED ELEMENTS ───────────────────────────────────────────────────────────
 
 function logoSvg(brand) {
@@ -198,23 +257,18 @@ function buildHookSlide(slide, imgBase64, brand) {
     : `<rect width="${W}" height="${H}" fill="#0a0a0a"/>
        <rect x="0" y="0" width="${W}" height="${H}" fill="url(#grad1Fallback)"/>`;
 
-  // Adaptive font size so full title always fits
-  // Short title → big font / fewer lines; long title → smaller font / more lines
-  const titleLen = rawTitle.replace(/\*\*/g, '').length;
-  const HEAD_SIZE = titleLen <= 35 ? 96 : titleLen <= 55 ? 84 : 72;
-  const HEAD_LH   = Math.round(HEAD_SIZE * 1.13);
-  const HEAD_MAX  = titleLen <= 35 ? 15 : titleLen <= 55 ? 17 : 20;
-  const MAX_LINES = titleLen <= 35 ? 3 : titleLen <= 55 ? 4 : 5;
-  const CAP_HEIGHT = Math.round(HEAD_SIZE * 0.72);
-
   const SOCIAL_TOP  = H - 58;
   // Headline anchored to bottom of slide, above social bar with comfortable padding
   const HEAD_BOTTOM = SOCIAL_TOP - 52;
 
-  // Pre-wrap to know actual line count
-  const headLines    = wrapHighlighted(rawTitle, HEAD_MAX);
-  const maxHeadLines = Math.min(headLines.length, MAX_LINES);
+  const { lines: headLines, size: HEAD_SIZE, lh: HEAD_LH, truncated } = fitHeadline(rawTitle, HEAD_BOTTOM);
+  const CAP_HEIGHT   = Math.round(HEAD_SIZE * 0.72);
+  const maxHeadLines = headLines.length;
   const HEAD_Y       = HEAD_BOTTOM - (maxHeadLines - 1) * HEAD_LH;
+
+  if (truncated) {
+    console.warn(`[ImageComposer] headline did not fit even at the smallest size: "${rawTitle.slice(0, 80)}"`);
+  }
 
   // Badge clearly above glyph top (28px breathing room)
   const BADGE_H      = 46;
@@ -497,7 +551,7 @@ function cleanOldImages() {
 }
 
 module.exports = {
-  composeSlideImages, cleanOldImages, fitBody, wrapHighlighted,
+  composeSlideImages, cleanOldImages, fitBody, fitHeadline, wrapHighlighted,
   // Exported for tests: branding is interpolated into raw SVG, so it is asserted
   // on directly rather than inferred from a rendered PNG.
   brandFor, buildSocialBar: (account) => socialBar(brandFor(account)),

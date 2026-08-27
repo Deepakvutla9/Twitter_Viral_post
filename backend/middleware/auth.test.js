@@ -159,9 +159,10 @@ test('the scheduler router is mounted open, and guards itself instead', () => {
     assert.ok(line, `${guarded} should exist`);
     assert.match(line, /requireApiKey/, `${guarded} must require the key`);
   }
-  assert.match(
-    routes.split('\n').find((l) => l.includes("router.post('/trigger'")),
-    /^(?!.*requireApiKey).*$/,
+  const triggerLine = routes.split('\n').find((l) => l.includes("router.post('/trigger'"));
+  assert.ok(triggerLine, 'the trigger route should exist');
+  assert.ok(
+    !triggerLine.includes('requireApiKey'),
     'the trigger keeps its own secret rather than the API key',
   );
 });
