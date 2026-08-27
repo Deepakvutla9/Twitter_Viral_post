@@ -48,16 +48,19 @@ remotely, with nothing pending.
 - **Never `supabase db push` at production to fix history.** Every migration here
   is already applied there except the baseline, which must be repaired, not run.
   Pushing is for genuinely new migrations, after history reconciles.
-- **Replayability is unproven.** The files are written to be idempotent —
-  `if not exists`, guarded `ADD CONSTRAINT`, `on conflict do nothing` — but that
-  has never been executed end to end. When a disposable database is available:
+- **Replayability is proven.** `supabase db reset` was run against a disposable
+  local database on 2026-08-27: all five migrations applied from scratch, then
+  replayed again on reset. The rebuilt schema was compared to production column
+  by column and constraint by constraint — 26 columns, 16 constraints and
+  indexes, and the RLS flags all match exactly.
+
+  Re-run it after changing any migration:
 
   ```bash
-  supabase db reset
+  supabase start && supabase db reset --local
   ```
 
-  That rebuilds from scratch through every migration in order, and is the only
-  real proof. Until it has been run, treat "these replay cleanly" as an intention.
+  This is a local stack only. Do not `supabase link` this project to production.
 - **`ig_token` (singular) is dead.** Empty, referenced by no code, superseded by
   `ig_tokens`. Drop it in its own migration once the live token is in `ig_tokens`,
   not by editing history.
