@@ -116,6 +116,14 @@ function normalizeAccount(row, { source = 'database' } = {}) {
 
   const slotPlan = normalizeSlotPlan(row?.slot_plan, problems);
   const voice = normalizeVoice(row?.voice, problems);
+  // The renderer keeps the registry of marks and falls back to the name pill on
+  // an unknown key, so this only checks the shape. A logo that is merely unknown
+  // should not stop an account posting.
+  const logo = row?.logo ? String(row.logo).trim() : null;
+  if (logo && !/^[a-z][a-z0-9-]{1,30}$/.test(logo)) {
+    problems.push(`logo "${logo}" is not a valid mark name`);
+  }
+
   const timezone = String(row?.timezone || 'UTC').trim() || 'UTC';
   // A wrong zone silently shifts every slot for this account, so it is checked
   // rather than trusted. Slots are UTC unless an account says otherwise.
@@ -129,6 +137,7 @@ function normalizeAccount(row, { source = 'database' } = {}) {
     handle,
     igUserId,
     accent,
+    logo,
     cron: cronExpr,
     timezone,
     slotPlan: Object.freeze(slotPlan),

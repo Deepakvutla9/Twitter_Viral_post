@@ -23,6 +23,7 @@ without a repair.
 | `20260826180223` | `multi_account_data_model` | Yes | accounts, ig_tokens, FK, per-account dedupe index. |
 | `20260826181208` | `accounts_voice_and_timezone` | Yes | voice, timezone, accent/slug CHECK constraints. |
 | `20260827210031` | `enable_rls_on_accounts_and_posted_urls` | Yes | RLS on, no policies — service role only. |
+| `20260827214500` | `accounts_logo_mark` | Yes | accounts.logo — a key into the drawn-mark registry. |
 
 Confirm before trusting this table:
 

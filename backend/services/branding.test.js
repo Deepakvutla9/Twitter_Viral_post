@@ -211,3 +211,53 @@ test('a name ending in an ampersand still yields parseable XML', async () => {
   const doc = await xml2js.parseStringPromise(svg);
   assert.match(doc.svg.text[0], /A&$/);
 });
+
+// ── logo marks ──────────────────────────────────────────────────────────────
+
+const { MARK_NAMES } = require('./imageComposer');
+
+test('an account can use a drawn mark instead of the name pill', () => {
+  const { buildSocialBar, brandFor } = require('./imageComposer');
+  const brand = brandFor({ ...ACCOUNT, displayName: 'Yichi Padesta', logo: 'monogram' });
+  assert.equal(brand.mark, 'monogram');
+  assert.equal(brand.initials, 'YP');
+  assert.deepEqual(brand.nameWords, ['YICHI', 'PADESTA']);
+  assert.ok(typeof buildSocialBar === 'function');
+});
+
+test('no logo means the name pill, as before', () => {
+  const { brandFor } = require('./imageComposer');
+  assert.equal(brandFor(ACCOUNT).mark, null);
+});
+
+test('an unknown mark falls back to the pill rather than vanishing', () => {
+  // A logo that silently disappeared would be harder to notice than one that
+  // never changed.
+  const { brandFor } = require('./imageComposer');
+  assert.equal(brandFor({ ...ACCOUNT, logo: 'not-a-real-mark' }).mark, null);
+});
+
+test('marks are keys into a registry, never markup from configuration', () => {
+  // The mark is interpolated straight into the slide's SVG. Anything that let a
+  // stored value through would be an injection, not a logo.
+  const { brandFor } = require('./imageComposer');
+  assert.equal(brandFor({ ...ACCOUNT, logo: '<script>alert(1)</script>' }).mark, null);
+  assert.deepEqual(MARK_NAMES, ['monogram', 'cap', 'wordmark']);
+});
+
+test('every registered mark renders without throwing', async () => {
+  for (const logo of MARK_NAMES) {
+    const imgs = await composeSlideImages(
+      [{ type: 'hook', badge: 'NEWS', headline: 'A headline that needs a couple of lines to sit properly' }],
+      { account: { ...ACCOUNT, displayName: 'Yichi Padesta', logo } },
+    );
+    assert.ok(imgs[0].filepath, logo);
+  }
+});
+
+test('a one-word name still produces a usable monogram', () => {
+  const { brandFor } = require('./imageComposer');
+  const brand = brandFor({ ...ACCOUNT, displayName: 'Frontrun', logo: 'monogram' });
+  assert.equal(brand.initials, 'F');
+  assert.deepEqual(brand.nameWords, ['FRONTRUN']);
+});

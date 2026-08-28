@@ -52,7 +52,22 @@ function brandFor(account) {
   const name = esc(rawName);
   const pillW = Math.min(640, Math.max(200, rawName.length * 13 + 56));
 
-  return { accent, name, pillW, handle: esc(account.handle || `@${account.slug}`) };
+  // Split for the marks that stack the name over two lines, escaped the same way.
+  const words = rawName.split(/\s+/).filter(Boolean).map(esc);
+  const initials = words.map((w) => w[0]).join('').slice(0, 2) || '?';
+
+  // An unknown key draws the name pill rather than nothing. A logo that silently
+  // vanished would be harder to notice than one that never changed.
+  let mark = account.logo ? String(account.logo).trim() : null;
+  if (mark && !MARKS[mark]) {
+    console.warn(`[ImageComposer] account "${account.slug}" asks for unknown logo "${mark}" — using the name pill. Known: ${MARK_NAMES.join(', ')}`);
+    mark = null;
+  }
+
+  return {
+    accent, name, pillW, mark, initials, nameWords: words,
+    handle: esc(account.handle || `@${account.slug}`),
+  };
 }
 
 // ── AUTO-HIGHLIGHT key words in the article title ─────────────────────────────
@@ -220,7 +235,64 @@ function fitHeadline(rawTitle, headBottom) {
 
 // ── SHARED ELEMENTS ───────────────────────────────────────────────────────────
 
+/**
+ * Drawn marks an account can use instead of the name pill.
+ *
+ * A registry of built-in designs keyed by name, not raw SVG stored per account:
+ * this string is interpolated straight into the document, so markup coming from
+ * configuration would be an injection rather than a logo. An account picks a key
+ * and everything drawn is code in this file.
+ *
+ * Each takes the already-escaped brand and returns SVG for the top-left corner,
+ * which must stay inside y=40..100 so the headline fitter's top limit holds.
+ */
+const MARKS = {
+  // Initials in a solid accent tile, name stacked beside it. The only one that
+  // still reads as a mark when cropped square, which is what a profile picture
+  // or a story sticker needs.
+  monogram: (brand) => {
+    const [first, ...rest] = brand.nameWords;
+    const second = rest.join(' ');
+    return `
+    <rect x="${PAD}" y="40" width="60" height="60" rx="16" fill="${brand.accent}"/>
+    <text x="${PAD + 30}" y="82" font-family="${FONT}" font-size="30" font-weight="900"
+      fill="${BLACK}" text-anchor="middle">${brand.initials}</text>
+    <text x="${PAD + 76}" y="${second ? 63 : 78}" font-family="${FONT}" font-size="21"
+      font-weight="900" fill="${WHITE}" letter-spacing="1.5">${first}</text>
+    ${second ? `<text x="${PAD + 76}" y="90" font-family="${FONT}" font-size="21"
+      font-weight="900" fill="${brand.accent}" letter-spacing="1.5">${second}</text>` : ''}`;
+  },
+
+  // Graduation cap inside the existing glass pill.
+  cap: (brand) => `
+    <rect x="${PAD}" y="44" width="${brand.pillW + 50}" height="52" rx="26"
+      fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+    <g transform="translate(${PAD + 18},52)">
+      <path d="M18 2 L36 11 L18 20 L0 11 Z" fill="${brand.accent}"/>
+      <path d="M8 15 L8 25 Q18 32 28 25 L28 15" fill="none" stroke="${brand.accent}"
+        stroke-width="3.4" stroke-linecap="round"/>
+    </g>
+    <text x="${PAD + 70}" y="79" font-family="${FONT}" font-size="19" font-weight="900"
+      fill="${WHITE}" letter-spacing="2">${brand.name}</text>`,
+
+  // Name only, against an accent rule. No pill, so it needs a dark photo.
+  wordmark: (brand) => {
+    const [first, ...rest] = brand.nameWords;
+    const second = rest.join(' ');
+    return `
+    <rect x="${PAD}" y="46" width="7" height="48" rx="3.5" fill="${brand.accent}"/>
+    <text x="${PAD + 22}" y="${second ? 68 : 80}" font-family="${FONT}" font-size="23"
+      font-weight="900" fill="${WHITE}" letter-spacing="2">${first}</text>
+    ${second ? `<text x="${PAD + 22}" y="94" font-family="${FONT}" font-size="23"
+      font-weight="900" fill="${brand.accent}" letter-spacing="2">${second}</text>` : ''}`;
+  },
+};
+
+const MARK_NAMES = Object.keys(MARKS);
+
 function logoSvg(brand) {
+  if (brand.mark) return MARKS[brand.mark](brand);
+
   // Top-left: glass pill badge — page name, sized to the name it holds
   return `
     <rect x="${PAD}" y="44" width="${brand.pillW}" height="52" rx="26"
@@ -551,8 +623,9 @@ function cleanOldImages() {
 }
 
 module.exports = {
-  composeSlideImages, cleanOldImages, fitBody, fitHeadline, wrapHighlighted,
+  composeSlideImages, cleanOldImages, fitBody, fitHeadline, wrapHighlighted, MARK_NAMES,
   // Exported for tests: branding is interpolated into raw SVG, so it is asserted
   // on directly rather than inferred from a rendered PNG.
-  brandFor, buildSocialBar: (account) => socialBar(brandFor(account)),
+  brandFor,
+  buildSocialBar: (account) => socialBar(brandFor(account)),
 };
