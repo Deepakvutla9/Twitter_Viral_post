@@ -228,7 +228,12 @@ function boundedEnv(name, fallback, min, max) {
   return n;
 }
 
-const ACCOUNT_STAGGER_MS = boundedEnv('ACCOUNT_STAGGER_MS', 60000, 0, 10 * 60 * 1000);
+// Three minutes between accounts. They were never meant to publish together —
+// Groq's free tier allows 8000 tokens a minute and one generation costs about
+// 4000, so accounts firing at once rate-limit each other into the backoff path
+// for no gain. A few minutes apart on the grid costs nothing and gives each run
+// the whole budget, the image host and the Graph API to itself.
+const ACCOUNT_STAGGER_MS = boundedEnv('ACCOUNT_STAGGER_MS', 3 * 60 * 1000, 0, 10 * 60 * 1000);
 // How late a trigger may arrive and still count for the slot it was aimed at.
 // Matches the double-fire guard window.
 const DUE_WINDOW_MINUTES = boundedEnv('DUE_WINDOW_MINUTES', 30, 0, 180);
