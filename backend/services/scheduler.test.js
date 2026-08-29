@@ -15,6 +15,7 @@ const stubs = {
     fetchNewsArticle: async () => ({}),
     fetchTrendingArticle: async () => ({ title: 'Stub story', url: 'https://example.com/x', points: 1, ogImage: null }),
     markPosted: async () => {},
+    postedSince: async () => false,
   },
   './gemini.js': {
     generateCarouselSlides: async () => ({

@@ -42,7 +42,7 @@ function loadScheduler(env = {}) {
     if (key.includes('scheduler.js')) delete require.cache[key];
   }
   const stubs = {
-    './newsScraper.js': { fetchNewsArticle: async () => ({}), fetchTrendingArticle: async () => ({}), markPosted: async () => ({ ok: true }) },
+    './newsScraper.js': { fetchNewsArticle: async () => ({}), fetchTrendingArticle: async () => ({}), markPosted: async () => ({ ok: true }), postedSince: async () => false },
     './gemini.js': { generateCarouselSlides: async () => ({}) },
     './imageComposer.js': { composeSlideImages: async () => [], cleanOldImages: () => {} },
     './instagram.js': { postCarousel: async () => 'X', checkToken: async () => ({ ok: true }), refreshToken: async () => ({ ok: true }) },

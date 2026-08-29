@@ -157,6 +157,66 @@ function isDueWithin(expr, { timeZone = 'UTC', now = new Date(), windowMinutes =
   return false;
 }
 
+/**
+ * The most recent moment a trigger schedule fired, at or before `now`.
+ *
+ * This is what a late trigger needs to know. GitHub Actions delivers a schedule
+ * anywhere from half an hour to nearly five hours after the minute it names, and
+ * a run that only asks "is anything due right now" answers no every time — the
+ * slot it was sent for is long past. Asking instead "which slot was this sent
+ * for" turns lateness into a detail rather than a silent skip.
+ *
+ * Trigger schedules are evaluated in UTC because that is what GitHub uses.
+ * Returns null when nothing fired inside the lookback, which for a schedule
+ * rarer than the window is a real answer: there is no slot to attribute this
+ * run to.
+ */
+function latestFiring(exprs, now = new Date(), { maxLookbackMinutes = 48 * 60, timeZone = 'UTC' } = {}) {
+  const list = (Array.isArray(exprs) ? exprs : [exprs]).map(parseCron).filter(Boolean);
+  if (!list.length) return null;
+
+  for (let back = 0; back <= maxLookbackMinutes; back += 1) {
+    const at = new Date(now.getTime() - back * 60000);
+    const parts = zonedParts(at, timeZone);
+    if (list.some((sets) => matchesSets(sets, parts))) {
+      // Truncated to the minute: the firing is the minute, not the instant
+      // inside it that this search happened to land on.
+      return new Date(Math.floor(at.getTime() / 60000) * 60000);
+    }
+  }
+  return null;
+}
+
+/**
+ * The longest gap between consecutive firings of a trigger schedule.
+ *
+ * Reachability asks whether an account's own schedule can ever coincide with a
+ * trigger. Once a trigger covers everything that came due since the previous
+ * one, "coincide" means "falls in the gap", so the gap is the window that
+ * question has to be asked over. Scanning a fortnight covers daily and weekly
+ * shapes; anything rarer falls back to a day, which only ever understates the
+ * window and so never invents an unreachable account.
+ */
+function maxFiringGapMinutes(exprs, { now = new Date(), days = 14 } = {}) {
+  const list = (Array.isArray(exprs) ? exprs : [exprs]).map(parseCron).filter(Boolean);
+  if (!list.length) return 24 * 60;
+
+  let previous = null;
+  let widest = 0;
+  const minutes = days * 24 * 60;
+  const start = new Date(Math.floor(now.getTime() / 60000) * 60000);
+
+  for (let ahead = 0; ahead <= minutes; ahead += 1) {
+    const at = new Date(start.getTime() + ahead * 60000);
+    const parts = zonedParts(at, 'UTC');
+    if (!list.some((sets) => matchesSets(sets, parts))) continue;
+    if (previous !== null) widest = Math.max(widest, ahead - previous);
+    previous = ahead;
+  }
+
+  return widest > 0 ? Math.min(widest, 24 * 60) : 24 * 60;
+}
+
 // Reachability is stable for a given configuration, so it is computed once a
 // day per (schedule, zone, trigger) rather than on every fan-out.
 const reachabilityMemo = new Map();
@@ -318,4 +378,4 @@ function isReachable(expr, opts = {}) {
   return reachable || !exhaustive;
 }
 
-module.exports = { parseCron, matchesAt, isDueWithin, isReachable, searchReachability, requiredHorizonDays, zonedParts, __clearReachabilityMemo: () => reachabilityMemo.clear() };
+module.exports = { parseCron, matchesAt, isDueWithin, latestFiring, maxFiringGapMinutes, isReachable, searchReachability, requiredHorizonDays, zonedParts, __clearReachabilityMemo: () => reachabilityMemo.clear() };

@@ -137,6 +137,41 @@ async function loadExclusions(account) {
   return own;
 }
 
+/**
+ * Has this account already published since `since`?
+ *
+ * The double-fire guard this backs up is a Map in memory, and on a free tier
+ * that sleeps between triggers the process rarely survives from one firing to
+ * the next — so the guard is usually empty exactly when a second trigger for the
+ * same slot arrives. The posting history is the only record that outlives a
+ * restart, so it is what answers "have we already covered this slot".
+ *
+ * Errors propagate for the same reason as loadHistory: reading a failure as "no,
+ * go ahead" is how the same story goes out twice, and an Instagram post cannot
+ * be taken back.
+ */
+async function postedSince(account, since) {
+  const slug = requireAccount(account, 'postedSince');
+  const db = getSupabase();
+  // With no database the in-memory guard in the scheduler is all there is.
+  if (!db) return false;
+
+  const { data, error } = await db
+    .from('posted_urls')
+    .select('id')
+    .eq('account', slug)
+    .gte('posted_at', new Date(since).toISOString())
+    .limit(1);
+
+  if (error) {
+    throw new Error(
+      `[News] could not check whether "${slug}" already posted this slot (${error.message}). ` +
+      'Refusing to continue rather than risk a second post in the same slot.',
+    );
+  }
+  return (data || []).length > 0;
+}
+
 async function markPosted(url, account) {
   const slug = requireAccount(account, 'markPosted');
   const db = getSupabase();
@@ -989,4 +1024,4 @@ async function fetchTrumpArticle(account) {
 }
 
 
-module.exports = { loadHistory, extractArticleText, isIndianImmigrationStory, scrapeArticle, jsonLdArticleBody, cooldownHours, __rememberUnrecorded: rememberUnrecorded, __clearUnrecorded: () => unrecorded.clear(), loadCrossAccountRecent, loadExclusions, fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, scoreVisaArticle, scoreTrumpArticle, hasRealContent, stripBoilerplate, markPosted };
+module.exports = { loadHistory, postedSince, extractArticleText, isIndianImmigrationStory, scrapeArticle, jsonLdArticleBody, cooldownHours, __rememberUnrecorded: rememberUnrecorded, __clearUnrecorded: () => unrecorded.clear(), loadCrossAccountRecent, loadExclusions, fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, scoreVisaArticle, scoreTrumpArticle, hasRealContent, stripBoilerplate, markPosted };

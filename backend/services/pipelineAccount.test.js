@@ -26,6 +26,7 @@ const stubs = {
     fetchVisaArticle: async () => { throw new Error('unused'); },
     fetchTrumpArticle: async () => { throw new Error('unused'); },
     markPosted: async (url, a) => { markedFor.push([url, a.slug]); },
+    postedSince: async () => false,
   },
   './gemini.js': {
     generateCarouselSlides: async (article, topic, a) => {

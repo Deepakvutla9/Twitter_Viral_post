@@ -1,12 +1,12 @@
 const cron = require('node-cron');
 const fs = require('fs');
 const path = require('path');
-const { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, markPosted } = require('./newsScraper');
+const { fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, markPosted, postedSince } = require('./newsScraper');
 const { generateCarouselSlides } = require('./gemini');
 const { composeSlideImages } = require('./imageComposer');
 const { postCarousel } = require('./instagram');
 const { getAccount, listActiveAccounts } = require('./accounts');
-const { isDueWithin, searchReachability, parseCron } = require('./cronMatch');
+const { isDueWithin, searchReachability, parseCron, latestFiring, maxFiringGapMinutes } = require('./cronMatch');
 
 let activeJob = null;
 
@@ -83,7 +83,7 @@ let jobStatus = {
  * no reason to skip another. A shared guard would silently serialise the fan-out
  * in runAllAccounts into posting one account per slot.
  */
-async function runPipeline({ force = false, account: given, slot = null, trigger = 'unknown' } = {}) {
+async function runPipeline({ force = false, account: given, slot = null, slotStart = null, trigger = 'unknown' } = {}) {
   // Resolved before the guards, since which account this is decides which guard
   // applies. A broken account also fails here, before any scraping or model call.
   const account = given || await getAccount();
@@ -98,6 +98,17 @@ async function runPipeline({ force = false, account: given, slot = null, trigger
     const mins = Math.round((Date.now() - startedAt) / 60000);
     console.log(`[Pipeline] Skipped ${slug} — last run started ${mins}m ago (double-fire guard)`);
     return { success: false, skipped: true, reason: 'debounced', account: slug };
+  }
+
+  // The guard above lives in memory, and on a free tier that sleeps between
+  // triggers the process almost never survives from one firing to the next — so
+  // it is empty exactly when a second trigger for the same slot arrives. The
+  // posting history is the only record that outlives a restart.
+  if (!force && slotStart) {
+    if (await postedSince(account, slotStart)) {
+      console.log(`[Pipeline] Skipped ${slug} — already posted in the slot starting ${new Date(slotStart).toISOString()}`);
+      return { success: false, skipped: true, reason: 'already-posted-this-slot', account: slug };
+    }
   }
 
   lastStartedAt.set(slug, Date.now());
@@ -222,6 +233,16 @@ const ACCOUNT_STAGGER_MS = boundedEnv('ACCOUNT_STAGGER_MS', 60000, 0, 10 * 60 * 
 // Matches the double-fire guard window.
 const DUE_WINDOW_MINUTES = boundedEnv('DUE_WINDOW_MINUTES', 30, 0, 180);
 /**
+ * How far back a schedule may have come due and still be worth posting.
+ *
+ * This is the catch-up horizon, not a tolerance for lateness — lateness is
+ * handled by asking whether the account has posted since it came due. It bounds
+ * two other things: a newly activated account does not immediately fire for a
+ * slot that passed hours ago, and a schedule too rare to have come up recently
+ * stays idle rather than retrying on every trigger until it succeeds.
+ */
+const CATCHUP_MINUTES = boundedEnv('CATCHUP_MINUTES', 24 * 60, 30, 48 * 60);
+/**
  * When fan-out is actually invoked. An account whose schedule never lines up
  * with this can never run, however valid its own cron is.
  *
@@ -293,6 +314,9 @@ function resolveTriggerCron() {
 }
 
 const TRIGGER_CRON = resolveTriggerCron();
+// The longest wait between two firings of that trigger — the span a single run
+// is responsible for covering.
+const TRIGGER_GAP_MINUTES = maxFiringGapMinutes(TRIGGER_CRON);
 let fanOutInFlight = false;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -330,14 +354,56 @@ async function runAllAccounts({
 async function fanOut({ slot, trigger, force, stagger, now }) {
   const active = await listActiveAccounts();
 
-  // An account only runs in the slots its own cron names, in its own timezone.
+  // When did this account last come due, and has it posted since?
+  //
+  // The old question was "is this account due right now", inside a 30-minute
+  // window. It answered no on every scheduled run for weeks: GitHub delivers a
+  // trigger between half an hour and nearly five hours after the minute it
+  // names, so the moment an account was due is always long past by the time
+  // anything asks. Four green runs a day, nothing posted.
+  //
+  // Widening the window to "since the slot this trigger was sent for" fixes the
+  // late trigger but not an account due *between* slots — a 09:00 account on a
+  // six-hourly trigger is due at a moment no slot window contains, unless a
+  // trigger happens to run hours late.
+  //
+  // So dueness is asked per account and against its own history: when did its
+  // schedule last come up, and has it published since. That is true regardless
+  // of when the trigger arrives, needs no watermark that a sleeping instance
+  // would lose, and makes a second trigger for the same slot a no-op rather
+  // than a second post.
+  const slotStart = latestFiring(TRIGGER_CRON, now);
+  if (slotStart) {
+    const late = Math.round((now.getTime() - slotStart.getTime()) / 60000);
+    console.log(`[Fan-out] Trigger sent for the ${slotStart.toISOString()} slot, arrived ${late}m later.`);
+  }
+
   // A manual run ignores the schedule, which is the point of a manual run.
   const notDue = [];
-  const accounts = force ? active : active.filter((a) => {
-    if (isDueWithin(a.cron, { timeZone: a.timezone, now, windowMinutes: DUE_WINDOW_MINUTES })) return true;
-    notDue.push(a.slug);
-    return false;
-  });
+  const alreadyPosted = [];
+  const dueSince = new Map();
+  const accounts = [];
+
+  for (const a of active) {
+    if (force) { accounts.push(a); continue; }
+
+    // Bounded so a schedule that came up days ago does not fire the moment an
+    // account is switched on, and so a rare schedule stays idle rather than
+    // retrying forever.
+    const cameDue = latestFiring(a.cron, now, {
+      timeZone: a.timezone,
+      maxLookbackMinutes: CATCHUP_MINUTES,
+    });
+    if (!cameDue) { notDue.push(a.slug); continue; }
+
+    // Kept apart from notDue on purpose. "Its schedule has not come up" and
+    // "it already covered this one" are the same silence from outside and
+    // completely different situations: only the first can mean a broken cron.
+    if (await postedSince(a, cameDue)) { alreadyPosted.push(a.slug); continue; }
+
+    dueSince.set(a.slug, cameDue);
+    accounts.push(a);
+  }
 
   // Once accounts carry their own schedules, "nothing due" is ordinary: a daily
   // account is legitimately idle at three of the four slots. What is NOT
@@ -352,7 +418,10 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
     const { reachable, exhaustive } = searchReachability(a.cron, {
       timeZone: a.timezone,
       triggerCron: TRIGGER_CRON,
-      windowMinutes: DUE_WINDOW_MINUTES,
+      // Judged over the whole gap between consecutive triggers, matching how
+      // dueness is now decided. Asking over the old 30-minute window would call
+      // a perfectly reachable 09:00 account unreachable on a 6-hourly trigger.
+      windowMinutes: CATCHUP_MINUTES,
       now,
     });
     return !reachable && exhaustive;
@@ -386,6 +455,7 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
       accounts: 0,
       activeAccounts: active.length,
       notDue,
+      alreadyPosted,
       unreachable,
       posted: 0,
       skipped: 0,
@@ -417,7 +487,7 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
     const account = accounts[i];
     if (i > 0 && stagger > 0) await sleep(stagger);
     try {
-      results.push(await runPipeline({ account, slot, trigger, force }));
+      results.push(await runPipeline({ account, slot, slotStart: dueSince.get(account.slug) || null, trigger, force }));
     } catch (err) {
       console.error(`[Fan-out] ${account.slug} failed: ${err.message}`);
       results.push({ success: false, account: account.slug, error: err.message });
@@ -443,6 +513,7 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
     activeAccounts: active.length,
     dueAccounts: accounts.length,
     notDue,
+    alreadyPosted,
     unreachable,
     // Reported whether or not anything else posted. An unreachable account is a
     // handle that will never publish again; another account succeeding in the
@@ -464,7 +535,11 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
   };
 
   console.log(`[Fan-out] ${summary.posted} posted, ${summary.skipped} skipped, ${summary.failed} failed, ${summary.unrecorded} unrecorded`);
-  return summary;
+  // The caller sees the same verdict as the status endpoint. They used to
+  // differ — the returned summary carried no error at all once anything posted —
+  // and two reports of one slot that disagree is how a broken handle stays
+  // hidden behind a working one.
+  return { ...summary, error: jobStatus.lastFanOut.error, alreadyPosted, notDue };
 }
 
 function startScheduler(cronExpression) {

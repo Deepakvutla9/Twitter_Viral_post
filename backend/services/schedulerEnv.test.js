@@ -6,7 +6,7 @@ process.env.DUE_WINDOW_MINUTES = 'Infinity';
 process.env.ACCOUNT_STAGGER_MS = 'soon';
 
 const stubs = {
-  './newsScraper.js': { fetchNewsArticle: async () => ({}), fetchTrendingArticle: async () => ({}), markPosted: async () => ({ ok: true }) },
+  './newsScraper.js': { fetchNewsArticle: async () => ({}), fetchTrendingArticle: async () => ({}), markPosted: async () => ({ ok: true }), postedSince: async () => false },
   './gemini.js': { generateCarouselSlides: async () => ({}) },
   './imageComposer.js': { composeSlideImages: async () => [], cleanOldImages: () => {} },
   './instagram.js': { postCarousel: async () => 'X', checkToken: async () => ({ ok: true }), refreshToken: async () => ({ ok: true }) },

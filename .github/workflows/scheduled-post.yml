@@ -86,7 +86,15 @@ jobs:
                 exit 1
               fi
               if [ "$ran" -eq 0 ]; then
-                echo "Nothing due this slot; $(jq -r '.lastFanOut.activeAccounts // 0' /tmp/status.json) active account(s) all reachable."
+                # "Nothing owed" has two shapes and they are not the same news.
+                # An account that already covered its schedule is healthy; one
+                # whose schedule has not come up in the catch-up window may be
+                # configured for a moment that never arrives.
+                covered=$(jq -r '.lastFanOut.alreadyPosted // [] | length' /tmp/status.json)
+                idle=$(jq -r '.lastFanOut.notDue // [] | length' /tmp/status.json)
+                echo "Nothing owed this slot — $covered already covered, $idle not yet due, of $(jq -r '.lastFanOut.activeAccounts // 0' /tmp/status.json) active account(s)."
+                jq -r '.lastFanOut.alreadyPosted[]? | "  covered: " + .' /tmp/status.json
+                jq -r '.lastFanOut.notDue[]? | "  idle: " + .' /tmp/status.json
                 exit 0
               fi
               # One account failing is worth a red run even when another posted:

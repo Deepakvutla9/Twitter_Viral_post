@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { parseCron, matchesAt, isDueWithin } = require('./cronMatch');
+const { parseCron, matchesAt, isDueWithin, latestFiring, maxFiringGapMinutes } = require('./cronMatch');
 
 const at = (iso) => new Date(iso);
 
@@ -259,4 +259,48 @@ test('a calendar negative near a century boundary is still a real negative', () 
     }),
     { reachable: false, exhaustive: true },
   );
+});
+
+// ── Late triggers ────────────────────────────────────────────────────────────
+
+test('a late trigger is attributed to the slot it was sent for', () => {
+  // The real deliveries that posted nothing: GitHub sent the 12:00 slot at 16:31
+  // and the 18:00 slot at 22:02.
+  assert.equal(
+    latestFiring('0 */6 * * *', new Date('2026-08-29T16:31:32Z')).toISOString(),
+    '2026-08-29T12:00:00.000Z',
+  );
+  assert.equal(
+    latestFiring('0 */6 * * *', new Date('2026-08-28T22:02:09Z')).toISOString(),
+    '2026-08-28T18:00:00.000Z',
+  );
+});
+
+test('a trigger arriving exactly on the minute belongs to that minute', () => {
+  assert.equal(
+    latestFiring('0 */6 * * *', new Date('2026-08-29T12:00:00Z')).toISOString(),
+    '2026-08-29T12:00:00.000Z',
+  );
+});
+
+test('an account schedule is read in its own timezone', () => {
+  // 09:30 in Kolkata is 04:00 UTC.
+  const fired = latestFiring('30 9 * * *', new Date('2026-08-29T06:00:00Z'), { timeZone: 'Asia/Kolkata' });
+  assert.equal(fired.toISOString(), '2026-08-29T04:00:00.000Z');
+});
+
+test('nothing fired inside the lookback is a real answer, not a guess', () => {
+  // A monthly schedule, asked about from the middle of the month.
+  assert.equal(latestFiring('0 0 1 * *', new Date('2026-08-20T12:00:00Z'), { maxLookbackMinutes: 60 }), null);
+});
+
+test('an unparseable schedule never fired', () => {
+  assert.equal(latestFiring('not a cron', new Date()), null);
+});
+
+test('the gap between firings is what a single run has to cover', () => {
+  assert.equal(maxFiringGapMinutes('0 */6 * * *'), 360);
+  assert.equal(maxFiringGapMinutes('0 0 * * *'), 1440);
+  // Two schedules together fire more often than either alone.
+  assert.equal(maxFiringGapMinutes(['0 0 * * *', '0 12 * * *']), 720);
 });
