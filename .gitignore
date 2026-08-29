@@ -7,3 +7,7 @@ MULTI_ACCOUNT_HANDOFF.md
 # Local API target used when testing against a stub backend
 .env.local
 frontend/.env.local
+
+# Long-lived Instagram tokens dropped here while adding an account. Public repo.
+.token-*
+backend/.token-*

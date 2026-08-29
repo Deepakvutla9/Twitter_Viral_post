@@ -116,11 +116,16 @@ async function runPipeline({ force = false, account: given, slot = null, trigger
     // nothing new that clears the dedupe.
     const FETCHERS = { visa: fetchVisaArticle, trump: fetchTrumpArticle };
     let article;
+    // A slot that could not get the topic it planned still posts, but it says so.
+    // This fallback ran for weeks in silence while a themed account published
+    // nothing but tech news, and a console line nobody reads was the only trace.
+    let offPlan = null;
     if (FETCHERS[source]) {
       try {
         article = await FETCHERS[source](account);
       } catch (err) {
-        console.warn(`[Pipeline] ${source} pool empty (${err.message}) — falling back to tech.`);
+        offPlan = { planned: source, reason: err.message };
+        console.warn(`[Pipeline] ⚠ ${source} pool empty (${err.message}) — falling back to tech OFF PLAN.`);
         article = await fetchTrendingArticle(account);
       }
     } else {
@@ -174,6 +179,10 @@ async function runPipeline({ force = false, account: given, slot = null, trigger
       article: article.title,
       postedAt: new Date().toISOString(),
       account: slug,
+      plannedSource: source,
+      actualSource: article.category || (offPlan ? 'tech' : source),
+      offPlan: Boolean(offPlan),
+      offPlanReason: offPlan ? offPlan.reason : null,
       recorded: !(recorded && recorded.ok === false && !recorded.skipped),
     };
     jobStatus.lastResult = result;
@@ -421,6 +430,9 @@ async function fanOut({ slot, trigger, force, stagger, now }) {
     skipped: results.filter((r) => r.skipped).length,
     failed: results.filter((r) => !r.success && !r.skipped).length,
     unrecorded: results.filter((r) => r.recorded === false).length,
+    // A themed account that posts tech news every slot looks healthy from every
+    // other number here. This is the one that shows it.
+    offPlan: results.filter((r) => r.offPlan).length,
     unreachable,
     results,
   };

@@ -227,6 +227,8 @@ const TRUSTED_DOMAINS = [
   // news for Indian workers and students. Verified to scrape with og:image.
   'economictimes.indiatimes.com', 'timesofindia.indiatimes.com',
   'hindustantimes.com', 'livemint.com', 'thehindu.com', 'indianexpress.com',
+  // International-education trade press, and the rule as published.
+  'thepienews.com', 'federalregister.gov',
 ];
 
 // Keywords that indicate opinion/blog posts — not real news
@@ -429,14 +431,22 @@ const BOILERPLATE_PATTERNS = [
 const MIN_ARTICLE_CHARS = Number(process.env.MIN_ARTICLE_CHARS || 800);
 
 // Strip the promo lines, then report whether real reporting is left.
+//
+// Filtering is per sentence, not per line, because Times of India publishes an
+// entire article as one unbroken line with "Catch all the ... news" tacked on
+// the end. Dropping the whole line took the reporting with it, the article read
+// as empty, and the visa slot fell through to off-topic news — the promo phrase
+// has to go without the paragraph it is attached to.
 function stripBoilerplate(text) {
   return String(text || '')
     .split(/\n+/)
-    .filter((line) => {
-      const t = line.trim();
-      if (!t) return false;
-      return !BOILERPLATE_PATTERNS.some((re) => re.test(t));
-    })
+    .map((line) => line
+      .trim()
+      .split(/(?<=[.!?])\s+/)
+      .filter((sentence) => sentence && !BOILERPLATE_PATTERNS.some((re) => re.test(sentence)))
+      .join(' ')
+      .trim())
+    .filter(Boolean)
     .join('\n')
     .trim();
 }
@@ -444,15 +454,66 @@ function hasRealContent(text) {
   return stripBoilerplate(text).length >= MIN_ARTICLE_CHARS;
 }
 
+// Some outlets publish the reporting only as JSON-LD, and Times of India
+// publishes it nowhere else at all. Read before the DOM is stripped: this lives
+// in a <script>, which the cleanup below removes.
+//
+// The block can be a bare object, an array, or an @graph wrapper, so every
+// nested object is visited rather than guessing the shape.
+function jsonLdArticleBody($) {
+  let best = '';
+  $('script[type="application/ld+json"]').each((_, el) => {
+    let parsed;
+    try {
+      parsed = JSON.parse($(el).contents().text());
+    } catch {
+      return; // A malformed block is one source among several, not a failure.
+    }
+    const visit = (node, depth) => {
+      if (!node || typeof node !== 'object' || depth > 8) return;
+      if (Array.isArray(node)) { for (const n of node) visit(n, depth + 1); return; }
+      if (typeof node.articleBody === 'string' && node.articleBody.length > best.length) {
+        best = node.articleBody;
+      }
+      for (const v of Object.values(node)) visit(v, depth + 1);
+    };
+    visit(parsed, 0);
+  });
+  // Occasionally the field carries escaped markup rather than plain text.
+  return best.replace(/<[^>]+>/g, ' ').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, 8000);
+}
+
 // ── ARTICLE SCRAPER ──────────────────────────────────────────────────────────
+//
+// Where an outlet keeps the article body varies, and taking the first container
+// that happens to match is how a 3,800-character report gets read as 224
+// characters: Economic Times renders <article><p> as a promo teaser and puts the
+// reporting in JSON-LD, while Times of India uses neither <article> nor <p>.
+// Under the old first-match rule both scraped short, failed the content floor,
+// and the visa pool silently collapsed to whichever single outlet still worked —
+// which is what pushed a visa-planned slot onto off-topic tech news.
+//
+// So every known location is read and the longest real body wins. Boilerplate is
+// discounted while comparing, because a promo block can easily be longer than
+// the reporting it sits above.
 async function scrapeArticle(url) {
   const res = await axios.get(url, { timeout: 10000, headers: HEADERS });
-  const $ = cheerio.load(res.data);
+  return extractArticleText(res.data);
+}
+
+// Split from the fetch so the selection rules can be tested against real page
+// shapes without the network deciding whether the test passes.
+function extractArticleText(html) {
+  const $ = cheerio.load(html);
 
   // Grab og:image before removing elements
   const ogImage = $('meta[property="og:image"]').attr('content')
     || $('meta[name="twitter:image"]').attr('content')
     || null;
+
+  const candidates = [];
+  const fromJsonLd = jsonLdArticleBody($);
+  if (fromJsonLd) candidates.push(fromJsonLd);
 
   $('script, style, nav, header, footer, aside, .ad, .advertisement, .related, .comments, .sidebar, .menu').remove();
 
@@ -464,11 +525,20 @@ async function scrapeArticle(url) {
 
   for (const sel of selectors) {
     const paragraphs = $(sel).map((_, el) => $(el).text().trim()).get().filter((t) => t.length > 50);
-    if (paragraphs.length >= 3) return { text: paragraphs.slice(0, 12).join('\n\n'), ogImage };
+    if (paragraphs.length >= 3) candidates.push(paragraphs.slice(0, 12).join('\n\n'));
   }
 
   const all = $('p').map((_, el) => $(el).text().trim()).get().filter((t) => t.length > 60);
-  return { text: all.slice(0, 10).join('\n\n'), ogImage };
+  if (all.length) candidates.push(all.slice(0, 10).join('\n\n'));
+
+  let text = '';
+  let bestLength = -1;
+  for (const candidate of candidates) {
+    const real = stripBoilerplate(candidate).length;
+    if (real > bestLength) { bestLength = real; text = candidate; }
+  }
+
+  return { text, ogImage };
 }
 
 // ── MAIN EXPORT ──────────────────────────────────────────────────────────────
@@ -646,56 +716,139 @@ async function fetchTrendingArticle(account) {
 // Google News search RSS was tried and rejected: its links never leave
 // news.google.com (they serve a ~600KB JS shell), so the article behind them
 // can never be scraped for text or image.
+// Corners, not just outlets. Indian NRI desks carry the day-to-day, the
+// international-education trade press carries what universities are seeing, and
+// the Federal Register carries the rule itself — usually days before any of them
+// write it up. A pool drawn from one kind of source inherits that source's blind
+// spots, and this one inherited them badly: for weeks a single outlet was the
+// only one whose pages could be read at all.
+//
+// `dedicated` marks a desk that covers only this beat. It never admits a story
+// by itself; it corroborates the everyday wording that a general desk would use
+// about something else entirely.
 const VISA_FEEDS = [
-  { name: 'ET NRI',         url: 'https://economictimes.indiatimes.com/nri/rssfeeds/7771250.cms' },
-  { name: 'TOI NRI',        url: 'https://timesofindia.indiatimes.com/rssfeeds/7098551.cms' },
-  { name: 'HT World',       url: 'https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml' },
-  { name: 'LiveMint',       url: 'https://www.livemint.com/rss/news' },
+  { name: 'ET NRI',        url: 'https://economictimes.indiatimes.com/nri/rssfeeds/7771250.cms', dedicated: true },
+  { name: 'TOI NRI',       url: 'https://timesofindia.indiatimes.com/rssfeeds/7098551.cms', dedicated: true },
+  { name: 'IE Education',  url: 'https://indianexpress.com/section/education/feed/', dedicated: true },
+  { name: 'PIE News',      url: 'https://thepienews.com/feed/', dedicated: true },
+  { name: 'HT World',      url: 'https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml' },
+  { name: 'TOI US',        url: 'https://timesofindia.indiatimes.com/rssfeeds/30359486.cms' },
+  { name: 'LiveMint',      url: 'https://www.livemint.com/rss/news' },
   { name: 'Hindu National', url: 'https://www.thehindu.com/news/national/feeder/default.rss' },
 ];
 
-// A story must mention a real visa/immigration-status term to qualify. The
-// broader words below (migrant, citizenship, deportation) are NOT enough on
-// their own: they let in Indian domestic detention stories, which are not visa
-// news for workers and students going abroad.
-const VISA_CORE = /\b(h-?1b|h-?4|l-?1|f-?1|opt|cpt|green card|uscis|visas?|student visa|work permit|permanent residency|eb-?[123]|i-140|i-485|sevis|consulate|embassy)\b/i;
-// Widen only the scoring, never the gate.
-const VISA_KEYWORDS = /\b(h-?1b|h-?4|l-?1|f-?1|opt|cpt|green card|uscis|visas?|immigration|immigrants?|student visa|work permit|permanent residency|eb-?[123]|i-140|i-485|sevis|deportation|naturalisation|naturalization|citizenship|migrants?)\b/i;
+// The rule itself, from the source that publishes it.
+//
+// Every fee change, comment period and final rule appears here first, and the
+// API is public, keyless and returns clean JSON. Documents scrape to full text
+// with an image, so they run through the same pipeline as any article.
+const FR_API = 'https://www.federalregister.gov/api/v1/documents.json';
 
-// Weighted so an H-1B or student-visa story beats a generic immigration piece,
-// and anything India-specific beats a story about some other country.
-const VISA_PRIORITY = [
-  ['h-1b', 30], ['h1b', 30], ['student visa', 28], ['f-1', 25], ['opt', 22],
-  ['green card', 22], ['uscis', 18], ['work permit', 18], ['sevis', 18],
-  ['india', 20], ['indian', 20], ['visa', 12], ['immigration', 10],
+// One request per term rather than one OR query: the API's OR handling narrows
+// the result set to almost nothing, and a query that quietly returns zero is
+// indistinguishable from a beat with no news in it.
+const FR_TERMS = [
+  'H-1B', 'student visa', 'optional practical training',
+  'employment authorization', 'nonimmigrant', 'green card',
 ];
 
-function scoreVisaArticle(item) {
-  const hay = `${item.title} ${item.summary}`.toLowerCase();
-  let score = 0;
-  for (const [term, weight] of VISA_PRIORITY) {
-    if (hay.includes(term)) score += weight;
+async function fetchFederalRegister({ days = 21, perTerm = 10 } = {}) {
+  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+
+  const batches = await Promise.all(FR_TERMS.map(async (term) => {
+    try {
+      const res = await axios.get(FR_API, {
+        timeout: 12000,
+        headers: HEADERS,
+        params: {
+          'conditions[term]': term,
+          'conditions[publication_date][gte]': since,
+          order: 'newest',
+          per_page: perTerm,
+          'fields[]': ['title', 'abstract', 'html_url', 'publication_date', 'type'],
+        },
+      });
+      return res.data?.results || [];
+    } catch (e) {
+      // One source among several. A rule nobody fetched is a thinner pool, not
+      // a failed run.
+      console.log(`[Visa] Federal Register "${term}" unavailable: ${e.message}`);
+      return [];
+    }
+  }));
+
+  const byUrl = new Map();
+  for (const doc of batches.flat()) {
+    if (doc?.html_url && !byUrl.has(doc.html_url)) byUrl.set(doc.html_url, doc);
   }
-  // Recency matters more here than for tech: visa rules change week to week.
-  const ageHours = (Date.now() - new Date(item.pubDate).getTime()) / 3600000;
-  if (Number.isFinite(ageHours)) score += Math.max(0, 40 - ageHours);
-  return Math.round(score);
+
+  return [...byUrl.values()].map((doc) => ({
+    title: String(doc.title || ''),
+    url: doc.html_url,
+    pubDate: doc.publication_date ? new Date(`${doc.publication_date}T12:00:00Z`).toUTCString() : '',
+    summary: String(doc.abstract || '').slice(0, 300),
+    source: `Federal Register (${doc.type || 'document'})`,
+    dedicated: true,
+    redditScore: 0,
+    hnPoints: 0,
+  })).filter((i) => i.url && i.title);
 }
+
+// Two desks at the same paper file the same story under different section URLs,
+// so URL dedupe alone lets a story appear twice — and the second account in a
+// slot then draws the near-duplicate its sibling just posted.
+function titleKey(title) {
+  return String(title || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 3)
+    .slice(0, 8)
+    .join(' ');
+}
+
+// The pool this account exists to serve — what qualifies, and how it ranks —
+// lives in one place, because a keyword list spread through a scraper is a
+// keyword list nobody maintains.
+const {
+  isIndianStudentStory,
+  scoreIndianStudentStory,
+} = require("./indianStudentTopics");
+
+// Kept under the old names: the visa pool is what the rest of this file calls
+// it, and the tests that guard the ranking were written against these.
+const isIndianImmigrationStory = isIndianStudentStory;
+const scoreVisaArticle = scoreIndianStudentStory;
+
+// The ranked list is worth working through: the top few are the freshest, but
+// an outlet that happens to be slow or paywalled today should not end the pool.
+const VISA_SCRAPE_ATTEMPTS = Number(process.env.VISA_SCRAPE_ATTEMPTS || 20);
 
 async function fetchVisaArticle(account) {
   console.log('[Visa] Fetching immigration news for Indian workers and students...');
-  const results = await Promise.all(VISA_FEEDS.map(fetchRSSFeed));
-  const allItems = results.flat();
-  console.log(`[Visa] Total raw articles: ${allItems.length}`);
+  const [feedResults, federalRegister] = await Promise.all([
+    Promise.all(VISA_FEEDS.map(async (feed) => {
+      const items = await fetchRSSFeed(feed);
+      // The prior belongs to the feed, and is carried on the item so the gate
+      // can use it without knowing where the item came from.
+      return items.map((item) => ({ ...item, dedicated: Boolean(feed.dedicated) }));
+    })),
+    fetchFederalRegister(),
+  ]);
+  const allItems = [...feedResults.flat(), ...federalRegister];
+  console.log(`[Visa] Total raw articles: ${allItems.length} (${federalRegister.length} from the Federal Register)`);
 
   const history = await loadExclusions(account);
   const seen = new Set();
+  const seenTitles = new Set();
   const THIS_YEAR = new Date().getFullYear();
 
   const candidates = allItems
     .filter((item) => {
       if (!item.url || seen.has(item.url) || history.has(item.url)) return false;
-      if (!VISA_CORE.test(`${item.title} ${item.summary}`)) return false;
+      const key = titleKey(item.title);
+      if (key && seenTitles.has(key)) return false;
+      if (!isIndianImmigrationStory(item, { sourceIsDedicated: item.dedicated })) return false;
       try {
         const host = new URL(item.url).hostname.replace('www.', '');
         if (BLOCKED_DOMAINS.some((d) => host.includes(d))) return false;
@@ -705,6 +858,7 @@ async function fetchVisaArticle(account) {
       const parsed = new Date(item.pubDate);
       if (isNaN(parsed.getTime()) || parsed.getFullYear() < THIS_YEAR) return false;
       seen.add(item.url);
+      if (key) seenTitles.add(key);
       return true;
     })
     .map((item) => ({ ...item, score: scoreVisaArticle(item) }))
@@ -713,10 +867,16 @@ async function fetchVisaArticle(account) {
   console.log(`[Visa] ${candidates.length} visa candidates after filtering`);
   if (!candidates.length) throw new Error('No fresh visa news found.');
 
-  for (const item of candidates.slice(0, 10)) {
+  for (const item of candidates.slice(0, VISA_SCRAPE_ATTEMPTS)) {
     console.log(`[Visa] Trying: "${item.title}" (score:${item.score}) @ ${item.source}`);
     try {
       const { text: fullText, ogImage } = await scrapeArticle(item.url);
+      if (!hasRealContent(fullText)) {
+        // Silence here is how the pool looked empty while carrying twenty
+        // stories: every candidate was being dropped for thin content with
+        // nothing written down, and the slot fell through to tech news.
+        console.log(`[Visa] Too thin (${stripBoilerplate(fullText).length} chars) — skipping ${item.source}`);
+      }
       if (hasRealContent(fullText)) {
         console.log(`[Visa] Got "${item.title}" — ${fullText.length} chars, image: ${ogImage ? 'yes' : 'no'}`);
         // category drives the hashtag pool: tech tags on a visa post read as spam.
@@ -791,7 +951,7 @@ async function fetchTrumpArticle(account) {
       const hay = `${item.title} ${item.summary}`;
       if (!TRUMP_GATE.test(hay)) return false;
       // Visa stories belong to the visa pool — posting them here would double up.
-      if (VISA_CORE.test(hay)) return false;
+      if (isIndianImmigrationStory(item)) return false;
       try {
         const host = new URL(item.url).hostname.replace('www.', '');
         if (BLOCKED_DOMAINS.some((d) => host.includes(d))) return false;
@@ -829,4 +989,4 @@ async function fetchTrumpArticle(account) {
 }
 
 
-module.exports = { loadHistory, cooldownHours, __rememberUnrecorded: rememberUnrecorded, __clearUnrecorded: () => unrecorded.clear(), loadCrossAccountRecent, loadExclusions, fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, scoreVisaArticle, scoreTrumpArticle, hasRealContent, stripBoilerplate, markPosted };
+module.exports = { loadHistory, extractArticleText, isIndianImmigrationStory, scrapeArticle, jsonLdArticleBody, cooldownHours, __rememberUnrecorded: rememberUnrecorded, __clearUnrecorded: () => unrecorded.clear(), loadCrossAccountRecent, loadExclusions, fetchNewsArticle, fetchTrendingArticle, fetchVisaArticle, fetchTrumpArticle, scoreVisaArticle, scoreTrumpArticle, hasRealContent, stripBoilerplate, markPosted };
