@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '0 */6 * * *'
   workflow_dispatch:
+    inputs:
+      account:
+        description: "Post now for these account slugs, comma-separated. Blank runs the ordinary due-slot fan-out."
+        required: false
+        default: ""
 
 concurrency:
   group: carousel-post
@@ -32,6 +37,7 @@ jobs:
         run: echo "start=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
 
       - name: Trigger the pipeline
+        if: github.event.inputs.account == ''
         run: |
           code=$(curl -sS -o /tmp/trigger.json -w '%{http_code}' \
             -X POST "$BACKEND/api/scheduler/trigger" \
@@ -44,6 +50,7 @@ jobs:
           fi
 
       - name: Wait for every account to finish
+        if: github.event.inputs.account == ''
         # The trigger is fire-and-forget (a full run can outlast the proxy
         # timeout), so confirm the outcome by polling status.
         #
@@ -115,3 +122,61 @@ jobs:
           echo "::error::Timed out after 20 minutes with no completed fan-out."
           cat /tmp/status.json
           exit 1
+      - name: Post now for the named accounts
+        if: github.event.inputs.account != ''
+        # A slug named on the trigger runs that account directly, bypassing the
+        # due-slot filter: the point of a manual release is that it is not a slot.
+        # Accounts are done one at a time so the Groq per-minute budget still
+        # covers each run, and each is confirmed before the next starts.
+        env:
+          ACCOUNTS: ${{ github.event.inputs.account }}
+        run: |
+          for slug in $(echo "$ACCOUNTS" | tr ',' ' '); do
+            echo "::group::$slug"
+            start=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+            code=$(curl -sS -o /tmp/trigger.json -w '%{http_code}'               -X POST "$BACKEND/api/scheduler/trigger"               -H "x-trigger-secret: ${{ secrets.TRIGGER_SECRET }}"               -H 'content-type: application/json'               -d "{\"account\":\"$slug\"}" --max-time 120)
+            cat /tmp/trigger.json; echo
+            if [ "$code" != "202" ]; then
+              echo "::error::Trigger for $slug returned HTTP $code"
+              exit 1
+            fi
+
+            # A single-account trigger sets lastResult, never lastFanOut.
+            ok=""
+            for i in $(seq 1 45); do
+              sleep 20
+              curl -sS --max-time 60 "$BACKEND/api/scheduler/status" -o /tmp/status.json || continue
+              acct=$(jq -r '.lastResult.account // ""' /tmp/status.json)
+              [ "$acct" = "$slug" ] || { echo "waiting... ($i/45)"; continue; }
+
+              failed_at=$(jq -r '.lastResult.failedAt // ""' /tmp/status.json)
+              if [ -n "$failed_at" ] && [ "$failed_at" > "$start" ]; then
+                echo "::error::$slug failed: $(jq -r '.lastResult.error // "?"' /tmp/status.json)"
+                exit 1
+              fi
+              skipped_at=$(jq -r '.lastResult.skippedAt // ""' /tmp/status.json)
+              if [ -n "$skipped_at" ] && [ "$skipped_at" > "$start" ]; then
+                echo "::error::$slug skipped: $(jq -r '.lastResult.reason // "?"' /tmp/status.json)"
+                exit 1
+              fi
+              posted_at=$(jq -r '.lastResult.postedAt // ""' /tmp/status.json)
+              if [ -n "$posted_at" ] && [ "$posted_at" > "$start" ]; then
+                echo "$slug posted $(jq -r '.lastResult.postId // "?"' /tmp/status.json) — $(jq -r '.lastResult.topic // ""' /tmp/status.json)"
+                # Published but unrecorded means the next run can pick the same
+                # story again, so it is worth a red run even though it posted.
+                if [ "$(jq -r '.lastResult.recorded' /tmp/status.json)" = "false" ]; then
+                  echo "::error::$slug published but the URL was NOT recorded in the dedupe history."
+                  exit 1
+                fi
+                ok=1
+                break
+              fi
+              echo "waiting... ($i/45)"
+            done
+            if [ -z "$ok" ]; then
+              echo "::error::Timed out after 15 minutes waiting for $slug."
+              cat /tmp/status.json
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
