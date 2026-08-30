@@ -34,7 +34,7 @@ if (!allowedOrigins.length && process.env.NODE_ENV === 'production') {
 }
 app.use(cors({
   origin: allowedOrigins.length ? allowedOrigins : '*',
-  methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-trigger-secret'],
 }));
 app.use(express.json());

@@ -13,6 +13,8 @@ import {
   addToQueue,
   removeFromQueue,
   getAccounts,
+  getAllAccounts,
+  setAccountActive,
   getApiKey,
   setApiKey,
   hasApiKey,
@@ -88,6 +90,9 @@ export default function FrontrunApp() {
   const [account, setAccount] = useState(getActiveAccount());
   const [apiKey, setApiKeyState] = useState(getApiKey());
   const [keyDraft, setKeyDraft] = useState('');
+  const [managingAccounts, setManagingAccounts] = useState(false);
+  const [allAccounts, setAllAccounts] = useState([]);
+  const [accountBusy, setAccountBusy] = useState('');
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -127,6 +132,39 @@ export default function FrontrunApp() {
   function chooseAccount(slug) {
     setAccount(slug);
     setActiveAccount(slug);
+  }
+
+  // The selector lists only accounts that may publish. The manager lists every
+  // account, so it fetches its own copy rather than reusing that one.
+  function openAccountManager() {
+    const next = !managingAccounts;
+    setManagingAccounts(next);
+    if (!next) return;
+    getAllAccounts()
+      .then(setAllAccounts)
+      .catch((err) => setError(err.message));
+  }
+
+  async function toggleAccount(slug, nextActive) {
+    setAccountBusy(slug);
+    setError(null);
+    try {
+      await setAccountActive(slug, nextActive);
+      const [everyone, publishable] = await Promise.all([getAllAccounts(), getAccounts()]);
+      setAllAccounts(everyone);
+      setAccounts(publishable);
+      // Switching off the handle you are publishing as would otherwise leave a
+      // stale slug selected, which posts as the default account rather than
+      // failing — the one outcome this screen exists to prevent.
+      if (!nextActive && account === slug) {
+        setAccount('');
+        setActiveAccount('');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setAccountBusy('');
+    }
   }
 
   const activeAccount = (accounts || []).find((a) => a.slug === account) || null;
@@ -420,11 +458,52 @@ export default function FrontrunApp() {
               <button
                 type="button"
                 className="fr-key-clear"
+                onClick={openAccountManager}
+                aria-expanded={managingAccounts}
+                title="Turn publishing on or off per account"
+              >
+                Accounts
+              </button>
+              <button
+                type="button"
+                className="fr-key-clear"
                 onClick={() => saveKey('')}
                 title="Forget the API key stored in this browser"
               >
                 Sign out
               </button>
+              {managingAccounts && (
+                <div className="fr-account-manager">
+                  <p className="fr-account-manager-note">
+                    An account that is off publishes nothing — not on the schedule,
+                    and not from this panel.
+                  </p>
+                  {allAccounts.length === 0 && (
+                    <p className="fr-account-manager-note">No accounts configured.</p>
+                  )}
+                  {allAccounts.map((a) => (
+                    <div className="fr-account-row" key={a.slug}>
+                      <span className="fr-account-dot" style={{ background: a.accent }} aria-hidden="true" />
+                      <span className="fr-account-name">
+                        {a.displayName}
+                        <span className="fr-account-handle">{a.handle} · {a.cron}</span>
+                      </span>
+                      <button
+                        type="button"
+                        className={`fr-account-toggle${a.active ? ' is-on' : ''}`}
+                        role="switch"
+                        aria-checked={a.active}
+                        aria-label={`Publishing for ${a.displayName}`}
+                        disabled={!a.managed || accountBusy === a.slug}
+                        title={a.managed ? '' : 'Configured from environment variables — no database row to change'}
+                        onClick={() => toggleAccount(a.slug, !a.active)}
+                      >
+                        {accountBusy === a.slug ? '...' : (a.active ? 'On' : 'Off')}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           ) : (
             <form

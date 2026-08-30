@@ -246,6 +246,73 @@ async function listActiveAccounts(opts = {}) {
   return fallback ? [fallback] : [];
 }
 
+/**
+ * Every account, including inactive ones.
+ *
+ * listActiveAccounts answers "who may publish"; this answers "who exists". The
+ * management UI needs the second question, because an account you have switched
+ * off is exactly the one you need to see in order to switch back on.
+ */
+async function listAllAccounts(opts = {}) {
+  const { bySlug } = await loadAll(opts);
+  const all = [...bySlug.values()];
+  if (all.length) return all;
+
+  // Same fallback as listActiveAccounts, for the same reason: without it a
+  // database-less server answers "no accounts exist" here while the selector
+  // still shows the env account, and the manager looks broken rather than
+  // unconfigured.
+  const fallback = accountFromEnv(DEFAULT_SLUG);
+  return fallback ? [fallback] : [];
+}
+
+/**
+ * Turn an account's publishing on or off.
+ *
+ * active=false is the whole off switch, not merely a scheduler flag: the fan-out
+ * skips the account, and resolveRequestAccount stops accepting it as a manual
+ * target too. Publishing to a handle you have switched off should not stay
+ * possible through a door the UI happens not to draw.
+ *
+ * Env-fallback accounts are rejected rather than quietly ignored. There is no
+ * row to write, so success here would mean a toggle that reports it worked and
+ * changed nothing.
+ */
+async function setAccountActive(slug, active) {
+  const db = getSupabase();
+  if (!db) {
+    const err = new Error(
+      'No database connection, so account state cannot be changed. Set '
+      + 'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on this server.',
+    );
+    err.status = 503;
+    throw err;
+  }
+
+  const { data, error } = await db
+    .from('accounts')
+    .update({ active: Boolean(active) })
+    .eq('slug', slug)
+    .select('slug, active')
+    .maybeSingle();
+
+  if (error) {
+    const err = new Error(`Could not update account "${slug}": ${error.message}`);
+    err.status = 500;
+    throw err;
+  }
+  if (!data) {
+    const err = new Error(`No account row for "${slug}"`);
+    err.status = 404;
+    throw err;
+  }
+
+  // The read path caches for ACCOUNT_CACHE_TTL_MS, so without this the toggle
+  // looks like it did nothing for up to a minute and gets clicked again.
+  invalidateCache();
+  return data;
+}
+
 function invalidateCache() {
   cache = { at: 0, bySlug: new Map(), invalid: new Map() };
 }
@@ -253,6 +320,8 @@ function invalidateCache() {
 module.exports = {
   getAccount,
   listActiveAccounts,
+  listAllAccounts,
+  setAccountActive,
   normalizeAccount,
   invalidateCache,
   AccountConfigError,

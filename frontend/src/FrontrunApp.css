@@ -1640,6 +1640,87 @@ button {
   align-items: center;
   gap: 8px;
   margin-left: auto;
+  /* The manager hangs off this row, so it anchors here rather than the header:
+     the header scrolls and the panel would drift away from its button. */
+  position: relative;
+}
+
+.fr-account-manager {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: min(340px, calc(100vw - 32px));
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #0d1117;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+}
+
+.fr-account-manager-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  opacity: 0.6;
+}
+
+.fr-account-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fr-account-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.fr-account-name {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.fr-account-handle {
+  font-size: 11px;
+  opacity: 0.55;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fr-account-toggle {
+  margin-left: auto;
+  flex: none;
+  min-width: 52px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 5px 12px;
+}
+
+.fr-account-toggle.is-on {
+  background: rgba(0, 229, 255, 0.16);
+  border-color: rgba(0, 229, 255, 0.55);
+}
+
+.fr-account-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .fr-account-label {

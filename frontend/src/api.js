@@ -69,6 +69,16 @@ export const getAccounts = () => api.get('/accounts').then((r) => {
   return Array.isArray(list) ? list : [];
 });
 
+// The management panel needs the accounts the selector deliberately hides: an
+// account that is switched off is the one you need to see to switch it back on.
+export const getAllAccounts = () => api.get('/accounts', { params: { all: 1 } }).then((r) => {
+  const list = r?.data?.accounts;
+  return Array.isArray(list) ? list : [];
+});
+
+export const setAccountActive = (slug, active) =>
+  api.patch(`/accounts/${encodeURIComponent(slug)}`, { active }).then((r) => r.data.account);
+
 export const fetchNews = (topic, exclude = []) =>
   api.post('/scrape', withAccount({ topic, exclude })).then((r) => r.data.article);
 

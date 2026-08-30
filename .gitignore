@@ -11,3 +11,4 @@ frontend/.env.local
 # Long-lived Instagram tokens dropped here while adding an account. Public repo.
 .token-*
 backend/.token-*
+.env.bak*
