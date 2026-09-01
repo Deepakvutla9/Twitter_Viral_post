@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { isAiStory, scoreAiStory } = require('./aiTopics');
 const xml2js = require('xml2js');
 const cheerio = require('cheerio');
 // The shared client, not a second one built here on the anon key. That private
@@ -273,6 +274,26 @@ const OPINION_SIGNALS = [
   'dear diary', 'personal story', 'my experience', 'how i ', 'why i ',
   'letter to', 'an open letter', 'reflections on', 'musings',
 ];
+
+// An account may narrow the tech pool to one subject. The pool itself stays
+// broad — it feeds every account — so the narrowing happens here, on the
+// candidate list, rather than by giving one account its own feeds.
+//
+// Returns the list unchanged for an account with no filter, which is every
+// account that has not asked for one.
+function narrowToFilter(items, account, label) {
+  if (account?.techFilter !== 'ai') return items;
+  const kept = items.filter(isAiStory);
+  console.log(`[${label}] AI filter: ${kept.length} of ${items.length} candidates are AI stories`);
+  return kept;
+}
+
+function rankForFilter(items, account) {
+  if (account?.techFilter !== 'ai') return items;
+  return items
+    .map((item) => ({ ...item, score: scoreAiStory(item) }))
+    .sort((a, b) => b.score - a.score);
+}
 
 // ── RSS FEEDS ──────────────────────────────────────────────────────────────
 const RSS_FEEDS = [
@@ -632,10 +653,20 @@ async function fetchNewsArticle(topic, exclude = [], account) {
     .sort((a, b) => b.score - a.score);
 
   console.log(`[News] ${candidates.length} unique candidates after filtering`);
-  if (!candidates.length) throw new Error('No fresh articles found. Try a different topic.');
+  const pool = rankForFilter(narrowToFilter(candidates, account, 'News'), account);
+  if (!pool.length) {
+    // Deliberately a failure rather than a fallback to the unfiltered pool. An
+    // account that asked for AI news only would rather miss a slot than publish
+    // the phone launch that was next in the ranking.
+    throw new Error(
+      account?.techFilter === 'ai' && candidates.length
+        ? `No AI stories in ${candidates.length} fresh tech candidates.`
+        : 'No fresh articles found. Try a different topic.',
+    );
+  }
 
   // Try top candidates — scrape for full text
-  for (const item of candidates.slice(0, 10)) {
+  for (const item of pool.slice(0, 10)) {
     console.log(`[News] Trying: "${item.title}" (score:${item.score} hn:${item.hnPoints} r:${item.redditScore}) @ ${item.source}`);
     try {
       const { text: fullText, ogImage } = await scrapeArticle(item.url);
@@ -659,7 +690,7 @@ async function fetchNewsArticle(topic, exclude = [], account) {
   // fabricated specifics get written, so a run with nothing scrapable fails
   // loudly instead of publishing invention.
   throw new Error(
-    `Found ${candidates.length} candidates but none had at least ${MIN_ARTICLE_CHARS} characters of real article text.`,
+    `Found ${pool.length} candidates but none had at least ${MIN_ARTICLE_CHARS} characters of real article text.`,
   );
 }
 
@@ -682,8 +713,16 @@ const FALLBACK_TOPICS = [
 ];
 let fallbackTopicIdx = 0;
 
+// The general rotation includes subjects a narrowed account does not cover, and
+// searching them wastes the fallback on stories the gate will reject anyway.
+const AI_FALLBACK_TOPICS = [
+  'OpenAI', 'Anthropic', 'Google Gemini', 'AI agents',
+  'humanoid robots', 'AI jobs', 'artificial intelligence', 'AI regulation',
+];
+
 async function fetchTrendingFallback(account) {
-  const topic = FALLBACK_TOPICS[fallbackTopicIdx % FALLBACK_TOPICS.length];
+  const topics = account?.techFilter === 'ai' ? AI_FALLBACK_TOPICS : FALLBACK_TOPICS;
+  const topic = topics[fallbackTopicIdx % topics.length];
   fallbackTopicIdx += 1;
   console.log(`[Trending] HN had no scrapable story — falling back to RSS news for "${topic}".`);
   return fetchNewsArticle(topic, [], account);
@@ -714,12 +753,16 @@ async function fetchTrendingArticle(account) {
     })
     .sort((a, b) => b.score - a.score);
 
-  console.log(`[Trending] Top candidate: "${scored[0]?.title}" (score: ${scored[0]?.score})`);
+  // The HN front page carries whatever was popular this hour, which for a
+  // narrowed account is mostly not its subject.
+  const pool = rankForFilter(narrowToFilter(scored, account, 'Trending'), account);
 
-  if (!scored.length) return fetchTrendingFallback(account);
+  if (!pool.length) return fetchTrendingFallback(account);
+
+  console.log(`[Trending] Top candidate: "${pool[0].title}" (score: ${pool[0].score})`);
 
   // Try to scrape top candidates
-  for (const item of scored.slice(0, 8)) {
+  for (const item of pool.slice(0, 8)) {
     try {
       const { text: fullText, ogImage } = await scrapeArticle(item.url);
       if (hasRealContent(fullText)) {

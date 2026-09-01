@@ -9,6 +9,12 @@ const { getSupabase } = require('./supabase');
 // account is, and it either returns a complete valid account or throws.
 
 const CONTENT_SOURCES = ['tech', 'visa', 'trump'];
+
+// Narrowing applied to the tech pool for one account. The pool is deliberately
+// broad — the HN front page and general tech feeds — which is right for a
+// general account and wrong for one whose readers came for AI. null means the
+// whole pool, as before.
+const TECH_FILTERS = ['ai'];
 const DEFAULT_SLUG = process.env.DEFAULT_ACCOUNT_SLUG || 'shadesofirony';
 
 const SLUG_RE = /^[a-z0-9][a-z0-9_-]{1,38}$/;
@@ -124,6 +130,13 @@ function normalizeAccount(row, { source = 'database' } = {}) {
     problems.push(`logo "${logo}" is not a valid mark name`);
   }
 
+  // null is "the whole tech pool", which is what every account had before this
+  // existed, so an absent column keeps the old behaviour.
+  const techFilter = row?.tech_filter ? String(row.tech_filter).trim().toLowerCase() : null;
+  if (techFilter && !TECH_FILTERS.includes(techFilter)) {
+    problems.push(`tech_filter "${techFilter}" is not one of: ${TECH_FILTERS.join(', ')}`);
+  }
+
   const timezone = String(row?.timezone || 'UTC').trim() || 'UTC';
   // A wrong zone silently shifts every slot for this account, so it is checked
   // rather than trusted. Slots are UTC unless an account says otherwise.
@@ -145,6 +158,7 @@ function normalizeAccount(row, { source = 'database' } = {}) {
       Array.isArray(row?.hashtag_extra) ? row.hashtag_extra.map(String) : [],
     ),
     groqModel: row?.groq_model ? String(row.groq_model) : null,
+    techFilter,
     voice: Object.freeze(voice),
     active: row?.active !== false,
     source,
@@ -326,5 +340,6 @@ module.exports = {
   invalidateCache,
   AccountConfigError,
   CONTENT_SOURCES,
+  TECH_FILTERS,
   DEFAULT_SLUG,
 };
