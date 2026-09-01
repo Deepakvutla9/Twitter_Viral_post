@@ -242,7 +242,43 @@ test('marks are keys into a registry, never markup from configuration', () => {
   // stored value through would be an injection, not a logo.
   const { brandFor } = require('./imageComposer');
   assert.equal(brandFor({ ...ACCOUNT, logo: '<script>alert(1)</script>' }).mark, null);
-  assert.deepEqual(MARK_NAMES, ['monogram', 'cap', 'wordmark']);
+  assert.deepEqual(MARK_NAMES, ['monogram', 'cap', 'wordmark', 'globe', 'boarding', 'lockup']);
+});
+
+test('the lockup keeps an acronym whole instead of initialising it again', () => {
+  // "YP Global" monograms as "YG" — one letter per word. The whole point of the
+  // lockup is that the tile shows what the account actually calls itself.
+  const { brandFor, MARKS } = require('./imageComposer');
+  const svg = MARKS.lockup(brandFor({ ...ACCOUNT, displayName: 'YP Global', logo: 'lockup' }));
+  assert.match(svg, />YP</, 'the acronym belongs in the tile');
+  assert.match(svg, />GLOBAL</, 'the rest of the name belongs beside it');
+  assert.doesNotMatch(svg, />YG</, 'never the per-word initials');
+});
+
+test('the lockup degrades to the monogram rather than overflowing the tile', () => {
+  // A mark in the registry can be selected by any account, so it has to hold up
+  // for names it was not drawn for: a long first word will not fit the tile, and
+  // a single word leaves nothing to set beside it.
+  const { brandFor, MARKS } = require('./imageComposer');
+  for (const displayName of ['Synthetic Minds', 'Frontrun']) {
+    const brand = brandFor({ ...ACCOUNT, displayName, logo: 'lockup' });
+    assert.equal(MARKS.lockup(brand), MARKS.monogram(brand), displayName);
+  }
+});
+
+test('the study-abroad marks stay inside the band the headline fitter assumes', () => {
+  // Every mark draws into y=40..100; the fitter's top limit depends on it. A
+  // coordinate that drifted below would push the headline instead of failing,
+  // so it is cheaper to assert the numbers than to notice it in a render.
+  const { brandFor } = require('./imageComposer');
+  const { MARKS } = require('./imageComposer');
+  for (const logo of ['globe', 'boarding', 'lockup']) {
+    const svg = MARKS[logo](brandFor({ ...ACCOUNT, displayName: 'Yichi Padesta', logo }));
+    const ys = [...svg.matchAll(/(?:^|[\s"])(?:y|cy|y1|y2)="([\d.]+)"/g)].map((m) => Number(m[1]));
+    assert.ok(ys.length, `${logo} exposes no y coordinates to check`);
+    assert.ok(Math.min(...ys) >= 40, `${logo} draws above y=40`);
+    assert.ok(Math.max(...ys) <= 100, `${logo} draws below y=100`);
+  }
 });
 
 test('every registered mark renders without throwing', async () => {

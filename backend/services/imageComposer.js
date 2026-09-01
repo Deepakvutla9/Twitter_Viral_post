@@ -286,6 +286,77 @@ const MARKS = {
     ${second ? `<text x="${PAD + 22}" y="94" font-family="${FONT}" font-size="23"
       font-weight="900" fill="${brand.accent}" letter-spacing="2">${second}</text>` : ''}`;
   },
+
+  // Study abroad: a globe under a graduation cap. The account's two subjects —
+  // studying, and doing it overseas — in one shape. Like the monogram and unlike
+  // the pill marks it survives a square crop, so it doubles as a profile picture.
+  // The cap is white rather than accent so it still separates from the globe on
+  // an account whose accent is pale.
+  globe: (brand) => {
+    const [first, ...rest] = brand.nameWords;
+    const second = rest.join(' ');
+    return `
+    <circle cx="${PAD + 30}" cy="78" r="20" fill="${brand.accent}"/>
+    <line x1="${PAD + 10}" y1="78" x2="${PAD + 50}" y2="78"
+      stroke="${BLACK}" stroke-width="2.2" opacity="0.5"/>
+    <ellipse cx="${PAD + 30}" cy="78" rx="7.5" ry="20" fill="none"
+      stroke="${BLACK}" stroke-width="2.2" opacity="0.5"/>
+    <path d="M${PAD + 30} 44 L${PAD + 50} 52 L${PAD + 30} 60 L${PAD + 10} 52 Z"
+      fill="${WHITE}" stroke="${BLACK}" stroke-width="1.4" stroke-linejoin="round"/>
+    <path d="M${PAD + 47} 53 L${PAD + 47} 63" stroke="${WHITE}" stroke-width="2.4"
+      stroke-linecap="round"/>
+    <text x="${PAD + 76}" y="${second ? 68 : 84}" font-family="${FONT}" font-size="21"
+      font-weight="900" fill="${WHITE}" letter-spacing="1.5">${first}</text>
+    ${second ? `<text x="${PAD + 76}" y="92" font-family="${FONT}" font-size="21"
+      font-weight="900" fill="${brand.accent}" letter-spacing="1.5">${second}</text>` : ''}`;
+  },
+
+  // Study abroad, wide form: a boarding pass. The perforation and the plane read
+  // as travel at a glance where the globe needs a second look. It is a pill, so
+  // it needs the width — this one cannot be cropped square.
+  boarding: (brand) => `
+    <rect x="${PAD}" y="44" width="${brand.pillW + 56}" height="52" rx="12"
+      fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.25)" stroke-width="1.5"/>
+    <g transform="translate(${PAD + 16},58)">
+      <path d="M0 12 L26 0 L14 24 L11 15 Z" fill="${brand.accent}"/>
+      <path d="M11 15 L26 0" stroke="${BLACK}" stroke-width="1.4" opacity="0.45"/>
+    </g>
+    <line x1="${PAD + 54}" y1="52" x2="${PAD + 54}" y2="88"
+      stroke="rgba(255,255,255,0.35)" stroke-width="2" stroke-dasharray="4 5"/>
+    <text x="${PAD + 70}" y="79" font-family="${FONT}" font-size="19" font-weight="900"
+      fill="${WHITE}" letter-spacing="2">${brand.name}</text>`,
+
+  // An initialism-led name — "YP Global" — wants the acronym itself in the tile
+  // and the rest of the name beside it. The monogram cannot express that: taking
+  // one letter per word turns "YP Global" into "YG", contradicting the name it
+  // sits next to.
+  //
+  // Falls back to the monogram when the first word is too long for the tile or
+  // when there is nothing left to set beside it, so the mark is safe for any
+  // account that selects it rather than only for the one it was drawn for.
+  //
+  // head is already escaped, so an "&" in a name inflates its length to five and
+  // takes the fallback. That is the safe direction to be wrong in, and a brand
+  // whose acronym contains an ampersand is not the case worth complicating this
+  // for.
+  lockup: (brand) => {
+    const [head, ...rest] = brand.nameWords;
+    const tail = rest.join(' ');
+    if (!tail || head.length > 4) return MARKS.monogram(brand);
+
+    // Arial Black caps run about 0.72em and the tile has ~48px of usable width,
+    // so the type steps down as the acronym gets longer instead of overflowing.
+    const headSize = [34, 30, 22, 16][head.length - 1];
+    const tailSize = tail.length <= 10 ? 23 : tail.length <= 16 ? 20 : 17;
+    return `
+    <rect x="${PAD}" y="40" width="60" height="60" rx="16" fill="${brand.accent}"/>
+    <text x="${PAD + 30}" y="${Math.round(70 + headSize * 0.4)}" font-family="${FONT}"
+      font-size="${headSize}" font-weight="900" fill="${BLACK}"
+      text-anchor="middle">${head}</text>
+    <text x="${PAD + 76}" y="${Math.round(70 + tailSize * 0.4)}" font-family="${FONT}"
+      font-size="${tailSize}" font-weight="900" fill="${WHITE}"
+      letter-spacing="2">${tail}</text>`;
+  },
 };
 
 const MARK_NAMES = Object.keys(MARKS);
@@ -626,6 +697,6 @@ module.exports = {
   composeSlideImages, cleanOldImages, fitBody, fitHeadline, wrapHighlighted, MARK_NAMES,
   // Exported for tests: branding is interpolated into raw SVG, so it is asserted
   // on directly rather than inferred from a rendered PNG.
-  brandFor,
+  brandFor, MARKS,
   buildSocialBar: (account) => socialBar(brandFor(account)),
 };
