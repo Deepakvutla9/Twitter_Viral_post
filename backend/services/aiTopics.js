@@ -64,8 +64,8 @@ const JOBS_SIGNAL = new RegExp([
   // "cuts 14,000 corporate jobs" — the shape most layoff headlines actually
   // take. Matching only "job cuts" missed the ones that name a number, which
   // are the bigger stories.
-  'cut(?:s|ting)?\s+[\d,]+\s+(?:[a-z-]+\s+){0,2}(?:jobs|roles|positions|staff)',
-  '(?:slash|eliminat|axe)(?:e|es|ed|ing)?\s+(?:[\d,]+\s+)?(?:jobs|roles|positions)',
+  'cut(?:s|ting)?\\s+[\\d,]+\\s+(?:[a-z-]+\\s+){0,2}(?:jobs|roles|positions|staff)',
+  '(?:slash|eliminat|axe)(?:e|es|ed|ing)?\\s+(?:[\\d,]+\\s+)?(?:jobs|roles|positions)',
   'jobs? (?:market|apocalypse)',
   'layoffs?', 'laid off', 'redundanc(?:y|ies)',
   'replac(?:e|ed|ing) (?:workers|jobs|staff|employees|humans)',
@@ -220,7 +220,120 @@ function scoreAiStory(item) {
   return Math.round(score);
 }
 
+// ── SECOND TIER: WHAT TO POST WHEN THE AI POOL IS EMPTY ──────────────────────
+//
+// AI news does not arrive on a six-hour cadence. Some slots there is genuinely
+// nothing, and the choice is between missing the post and widening the subject.
+//
+// These three subjects widen it without changing what the account is about. A
+// reader who came for AI news is the same reader who wants a tool worth trying,
+// a course worth taking, or a company worth watching. General tech — a phone
+// launch, a console bundle — is still out, which is the whole point.
+
+// Written as regex literals rather than assembled from strings. The first tier
+// uses strings because those lists are long enough to want line breaks; here
+// the escaping is the whole risk, and a literal has no escaping layer to get
+// wrong.
+
+// Something built, that a reader could go and use.
+const TOOL_SIGNAL = new RegExp(
+  [
+    /\b(?:launch(?:es|ed)?|releases?|ships?|unveils?|introduc(?:es|ed)|debuts?|rolls? out)\b(?:\s+\S+){0,4}?\s+\b(?:tool|tools|app|apps|platform|extension|plugin|api|sdk|framework|library|service)\b/,
+    /\b(?:new|free|open-?source)\s+(?:\S+\s+){0,2}(?:tool|tools|app|apps|platform|editor|assistant|generator|tracker|dashboard)\b/,
+    /\bno-?code\b/, /\bproduct hunt\b/, /\bopen-?sourc(?:e|es|ed|ing)\b/,
+    /\bpublic beta\b/, /\bnow available\b/, /\bgeneral availability\b/,
+  ].map((r) => r.source).join('|'),
+  'i',
+);
+
+// Something to learn, and where. This is the account's own audience — people
+// studying, or deciding what to study.
+const COURSE_SIGNAL = new RegExp(
+  [
+    /\bcourses?\b/, /\bcertificat(?:e|es|ion|ions)\b/, /\bcurricul(?:um|a)\b/,
+    /\bbootcamps?\b/, /\bmoocs?\b/, /\bcoursera\b/, /\bed-?x\b/,
+    /\budemy\b/, /\bkhan academy\b/, /\bnanodegree\b/,
+    /\bscholarships?\b/, /\bfellowships?\b/, /\bupskilling\b/,
+    /\btraining programs?\b/, /\bfree (?:to learn|training|classes)\b/,
+    /\blearn(?:ing)? (?:to code|programming|python|data science|ai|machine learning)\b/,
+  ].map((r) => r.source).join('|'),
+  'i',
+);
+
+// A company that made it, or is visibly on the way. Money raised, a founder
+// story, an exit — the shape of a success rather than an announcement.
+const STARTUP_SIGNAL = new RegExp(
+  [
+    /\bstart-?ups?\b/, /\bfounders?\b/, /\bco-?founders?\b/,
+    /\bseed round\b/, /\bseries [a-f]\b/, /\bpre-?seed\b/,
+    /\braises? \$?[\d.]+\s?(?:m|b|million|billion|crore)\b/,
+    /\bvaluation\b/, /\bunicorns?\b/, /\by ?combinator\b/, /\byc [ws]\d{2}\b/,
+    /\bbootstrapped\b/, /\bacqui(?:red|sition|hire)\b/,
+    /\bipo\b/, /\bfrom zero to\b/,
+  ].map((r) => r.source).join('|'),
+  'i',
+);
+
+// The Mac specifically, not Apple generally. An iPhone camera or a Watch band
+// is the gadget churn this account is filtering out; the machine its readers
+// work on is not. Apple silicon counts because that is what Mac news is mostly
+// about now, and because it is where Apple's AI story actually lands.
+const MAC_SIGNAL = new RegExp(
+  [
+    /\bmac(?:book|books)?\b/, /\bmac (?:mini|studio|pro)\b/, /\bimac\b/,
+    /\bmac ?os\b/, /\bapple silicon\b/, /\bm[1-9]\s?(?:pro|max|ultra|chip)\b/,
+    /\bapple (?:intelligence|vision pro)\b/,
+  ].map((r) => r.source).join('|'),
+  'i',
+);
+
+const SECOND_TIER = {
+  tools: { test: TOOL_SIGNAL, weight: 20 },
+  courses: { test: COURSE_SIGNAL, weight: 24 },
+  startups: { test: STARTUP_SIGNAL, weight: 22 },
+  mac: { test: MAC_SIGNAL, weight: 20 },
+};
+
+/**
+ * The second tier's own gate. Same off-topic list as the first — a gadget review
+ * is not a "new tool", and a console launch is not a startup story.
+ */
+function assessSecondary(item) {
+  const hay = hayOf(item);
+  const hit = [];
+  for (const [name, { test }] of Object.entries(SECOND_TIER)) {
+    if (test.test(hay)) hit.push(name);
+  }
+  if (!hit.length) return { admit: false, reasons: ['no-second-tier-signal'], buckets: {} };
+  if (OFF_TOPIC_SIGNAL.test(hay)) {
+    return { admit: false, reasons: ['off-topic', ...hit.map((n) => `tier2:${n}`)], buckets: {} };
+  }
+  return { admit: true, reasons: hit.map((n) => `tier2:${n}`), buckets: {} };
+}
+
+function isSecondaryStory(item) {
+  return assessSecondary(item).admit;
+}
+
+function scoreSecondaryStory(item) {
+  const hay = hayOf(item);
+  let score = 0;
+  for (const [, { test, weight }] of Object.entries(SECOND_TIER)) {
+    if (test.test(hay)) score += weight;
+  }
+  score += sumTerms(hay, IMPACT_TERMS, 30);
+  score -= sumTerms(hay, SOFT_TERMS, 30);
+  if (OFF_TOPIC_SIGNAL.test(hay)) score -= 25;
+
+  const ageHours = (Date.now() - new Date(item?.pubDate).getTime()) / 3600000;
+  if (Number.isFinite(ageHours)) score += Math.max(0, 36 - ageHours);
+  score += Math.min(20, Number(item?.hnPoints || 0) / 25);
+  return Math.round(score);
+}
+
 module.exports = {
   BUCKETS, LAB_SIGNAL, MODEL_SIGNAL, AGENT_SIGNAL, ROBOT_SIGNAL, JOBS_SIGNAL,
   OFF_TOPIC_SIGNAL, WEAK_AI_SIGNAL, matchBuckets, assess, isAiStory, scoreAiStory,
+  TOOL_SIGNAL, COURSE_SIGNAL, STARTUP_SIGNAL, MAC_SIGNAL, SECOND_TIER,
+  assessSecondary, isSecondaryStory, scoreSecondaryStory,
 };

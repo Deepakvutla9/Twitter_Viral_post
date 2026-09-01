@@ -104,3 +104,62 @@ test('a story with no signal at all is rejected with a reason worth reading', ()
   assert.equal(admit, false);
   assert.deepStrictEqual(reasons, ['no-ai-signal']);
 });
+
+// ── SECOND TIER ──────────────────────────────────────────────────────────────
+// What runs when the AI pool is empty. It widens the subject without giving up
+// on filtering: the whole point is that general tech still cannot get in.
+
+const { isSecondaryStory, assessSecondary, scoreSecondaryStory } = require('./aiTopics');
+
+const FALLBACK_SUBJECTS = [
+  'Notion launches a free research tool for students',
+  'Figma open-sources its animation library',
+  'Coursera adds 40 free certificates in data science',
+  'A new bootcamp offers scholarships to first-generation students',
+  'A two-person startup raises 12 million in a Series A',
+  'Y Combinator company reaches a 2 billion valuation',
+  'Apple unveils the M6 MacBook Pro',
+  'macOS 27 ships a new window manager',
+];
+
+test('the fallback admits tools, courses, startups and Mac news', () => {
+  const missed = FALLBACK_SUBJECTS.filter((s) => !isSecondaryStory(story(s)));
+  assert.deepStrictEqual(missed, [], `should have been admitted: ${missed.join(' | ')}`);
+});
+
+test('the fallback still keeps general tech out', () => {
+  const wrong = [
+    'Best gaming console deals this week',
+    'Bitcoin climbs past its previous high',
+    'PlayStation drops a new bundle',
+    'The best noise-cancelling headphones of 2026',
+    'Council approves new bus lane',
+  ].filter((s) => isSecondaryStory(story(s)));
+  assert.deepStrictEqual(wrong, [], `should have been rejected: ${wrong.join(' | ')}`);
+});
+
+test('Mac counts but the rest of the phone cycle does not', () => {
+  assert.ok(isSecondaryStory(story('Apple unveils the M6 MacBook Pro')));
+  assert.ok(isSecondaryStory(story('Apple silicon gets a new memory architecture')));
+  assert.equal(isSecondaryStory(story('Apple launches iPhone 18 camera')), false);
+});
+
+test('the fallback says which bucket admitted a story', () => {
+  const { admit, reasons } = assessSecondary(story('Coursera adds 40 free certificates'));
+  assert.equal(admit, true);
+  assert.ok(reasons.includes('tier2:courses'), reasons.join(','));
+});
+
+test('an AI story does not need the fallback to be admitted', () => {
+  // The tiers are ordered, not exclusive — this only checks the first tier is
+  // the one that would take it.
+  assert.ok(isAiStory(story('Anthropic ships a new Claude model')));
+});
+
+test('the fallback ranks a fresh launch above a stale one', () => {
+  const fresh = scoreSecondaryStory(story('Notion launches a free research tool'));
+  const stale = scoreSecondaryStory(story('Notion launches a free research tool', {
+    pubDate: new Date(Date.now() - 48 * 3600 * 1000).toISOString(),
+  }));
+  assert.ok(fresh > stale, `${fresh} should beat ${stale}`);
+});

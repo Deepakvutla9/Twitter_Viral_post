@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { isAiStory, scoreAiStory } = require('./aiTopics');
+const { isAiStory, scoreAiStory, isSecondaryStory, scoreSecondaryStory } = require('./aiTopics');
 const xml2js = require('xml2js');
 const cheerio = require('cheerio');
 // The shared client, not a second one built here on the anon key. That private
@@ -281,18 +281,39 @@ const OPINION_SIGNALS = [
 //
 // Returns the list unchanged for an account with no filter, which is every
 // account that has not asked for one.
-function narrowToFilter(items, account, label) {
-  if (account?.techFilter !== 'ai') return items;
-  const kept = items.filter(isAiStory);
-  console.log(`[${label}] AI filter: ${kept.length} of ${items.length} candidates are AI stories`);
-  return kept;
+function rankBy(items, scorer) {
+  return items
+    .map((item) => ({ ...item, score: scorer(item) }))
+    .sort((a, b) => b.score - a.score);
 }
 
-function rankForFilter(items, account) {
+/**
+ * The candidate list this account should choose from, ranked.
+ *
+ * Two tiers, because AI news does not arrive on a six-hour cadence. Some slots
+ * there is genuinely nothing, and the choice is between missing the post and
+ * widening the subject. The second tier widens it to things the same reader
+ * still wants — a new tool, a course, a startup that made it, Mac news — while
+ * general tech stays out, which is the point of filtering at all.
+ *
+ * Which tier ran is logged rather than inferred. A slot that quietly served the
+ * fallback for a week would look like the filter had stopped working.
+ */
+function poolForAccount(items, account, label) {
   if (account?.techFilter !== 'ai') return items;
-  return items
-    .map((item) => ({ ...item, score: scoreAiStory(item) }))
-    .sort((a, b) => b.score - a.score);
+
+  const ai = items.filter(isAiStory);
+  if (ai.length) {
+    console.log(`[${label}] AI filter: ${ai.length} of ${items.length} candidates are AI stories`);
+    return rankBy(ai, scoreAiStory);
+  }
+
+  const second = items.filter(isSecondaryStory);
+  console.log(
+    `[${label}] No AI stories in ${items.length} candidates — falling back to `
+    + `tools / courses / startups / Mac (${second.length} found)`,
+  );
+  return rankBy(second, scoreSecondaryStory);
 }
 
 // ── RSS FEEDS ──────────────────────────────────────────────────────────────
@@ -653,14 +674,14 @@ async function fetchNewsArticle(topic, exclude = [], account) {
     .sort((a, b) => b.score - a.score);
 
   console.log(`[News] ${candidates.length} unique candidates after filtering`);
-  const pool = rankForFilter(narrowToFilter(candidates, account, 'News'), account);
+  const pool = poolForAccount(candidates, account, 'News');
   if (!pool.length) {
     // Deliberately a failure rather than a fallback to the unfiltered pool. An
     // account that asked for AI news only would rather miss a slot than publish
     // the phone launch that was next in the ranking.
     throw new Error(
       account?.techFilter === 'ai' && candidates.length
-        ? `No AI stories in ${candidates.length} fresh tech candidates.`
+        ? `No AI or fallback stories in ${candidates.length} fresh tech candidates.`
         : 'No fresh articles found. Try a different topic.',
     );
   }
@@ -755,7 +776,7 @@ async function fetchTrendingArticle(account) {
 
   // The HN front page carries whatever was popular this hour, which for a
   // narrowed account is mostly not its subject.
-  const pool = rankForFilter(narrowToFilter(scored, account, 'Trending'), account);
+  const pool = poolForAccount(scored, account, 'Trending');
 
   if (!pool.length) return fetchTrendingFallback(account);
 
