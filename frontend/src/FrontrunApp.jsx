@@ -93,6 +93,7 @@ export default function FrontrunApp() {
   const [managingAccounts, setManagingAccounts] = useState(false);
   const [allAccounts, setAllAccounts] = useState([]);
   const [accountBusy, setAccountBusy] = useState('');
+  const [confirmShip, setConfirmShip] = useState(false);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
@@ -168,6 +169,13 @@ export default function FrontrunApp() {
   }
 
   const activeAccount = (accounts || []).find((a) => a.slug === account) || null;
+  // With nothing selected the server publishes as the default account, so the
+  // UI resolves the same way rather than showing a blank destination. Naming it
+  // is the whole point: an Instagram post cannot be taken back, and "I thought
+  // it was on the other handle" is the mistake this prevents.
+  const defaultAccount = (accounts || []).find((a) => a.isDefault) || null;
+  const shipTarget = activeAccount || defaultAccount;
+  const shipHandle = shipTarget ? shipTarget.handle : null;
 
   useEffect(() => {
     const timeout = setTimeout(() => setBooting(false), 1250);
@@ -286,11 +294,14 @@ export default function FrontrunApp() {
 
   async function publishNow() {
     if (!imagePaths.length) return;
+    setConfirmShip(false);
     setError(null);
     setLoad('launch', true);
     try {
       const result = await postCarousel(imagePaths, caption, article?.url);
-      setPosted(result.postId);
+      // The server's answer, not the local selection — they can differ, and the
+      // server's is the one that happened.
+      setPosted({ postId: result.postId, handle: result.account?.handle || shipHandle });
       await refreshSystems();
     } catch (e) {
       setError(e.response?.data?.error || e.message);
@@ -669,15 +680,42 @@ export default function FrontrunApp() {
                 <textarea value={caption} onChange={(event) => setCaption(event.target.value)} rows={4} />
               </label>
               {posted ? (
-                <div className="posted-state">Posted to Instagram · {posted}</div>
+                <div className="posted-state">
+                  Posted to {posted.handle || 'Instagram'} · {posted.postId}
+                </div>
+              ) : confirmShip ? (
+                <div className="ship-confirm">
+                  <p className="ship-confirm-line">
+                    Publish to <strong>{shipHandle || 'the default account'}</strong> now?
+                    {!activeAccount && shipHandle && ' No account is selected, so this is the default.'}
+                  </p>
+                  <div className="ship-confirm-actions">
+                    <button
+                      type="button"
+                      className="primary-action ship-now"
+                      onClick={publishNow}
+                      disabled={loading.launch}
+                    >
+                      {loading.launch ? 'Shipping…' : `Yes, post to ${shipHandle || 'default'}`}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-action"
+                      onClick={() => setConfirmShip(false)}
+                      disabled={loading.launch}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <button
                   type="button"
                   className="primary-action full ship-now"
-                  onClick={publishNow}
+                  onClick={() => setConfirmShip(true)}
                   disabled={!imagePaths.length || loading.launch}
                 >
-                  {loading.launch ? 'Shipping…' : 'Ship Now'}
+                  {shipHandle ? `Ship to ${shipHandle}` : 'Ship Now'}
                 </button>
               )}
               <div className="schedule-row">

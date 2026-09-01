@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { listActiveAccounts, listAllAccounts, setAccountActive } = require('../services/accounts');
+const {
+  listActiveAccounts, listAllAccounts, setAccountActive, DEFAULT_SLUG,
+} = require('../services/accounts');
 
 // Config only — no tokens, no ig_user_id: this is behind the API key, but there
 // is no reason for a browser to hold an account's identifiers just to draw a
@@ -16,6 +18,9 @@ const publicShape = (a) => ({
   // A row that only exists in environment variables cannot be toggled, and the
   // UI needs to know that before it offers a switch that would 503.
   managed: a.source !== 'env-fallback',
+  // Which account a request with no slug resolves to. The UI needs it to name
+  // the destination before publishing rather than after.
+  isDefault: a.slug === DEFAULT_SLUG,
 });
 
 /**

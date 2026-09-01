@@ -21,7 +21,15 @@ router.post('/carousel', withAccount(async (req, res, acct) => {
     } else {
       console.log('[Route] No articleUrl passed — skipping markPosted');
     }
-    res.json({ success: true, postId });
+    // The account is echoed back because the caller should not have to infer
+    // where a post went from what it thinks it selected. A stale or absent slug
+    // resolves to the default here, and an Instagram post cannot be recalled —
+    // so the answer names the handle that actually received it.
+    res.json({
+      success: true,
+      postId,
+      account: { slug: acct.slug, handle: acct.handle, displayName: acct.displayName },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
