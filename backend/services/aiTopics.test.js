@@ -163,3 +163,33 @@ test('the fallback ranks a fresh launch above a stale one', () => {
   }));
   assert.ok(fresh > stale, `${fresh} should beat ${stale}`);
 });
+
+test('speculation businesses do not clear the fallback on funding alone', () => {
+  // The headline that prompted this: a real Series A, a business the account
+  // does not cover. "Raises $300m" is the startup bucket's strongest signal, so
+  // the exclusion has to come from naming the business.
+  const wrong = [
+    'Polymarket reportedly raises $300 million from an investment fund',
+    'A sportsbook startup raises 40 million in a Series B',
+    'Crypto exchange founder announces a new seed round',
+    'Betting app reaches a 2 billion valuation',
+  ].filter((s) => isSecondaryStory(story(s)));
+  assert.deepStrictEqual(wrong, [], `should have been rejected: ${wrong.join(' | ')}`);
+});
+
+test('ordinary startup funding still gets through', () => {
+  // The exclusion must not swallow the bucket it protects.
+  const missed = [
+    'A two-person startup raises 12 million in a Series A',
+    'Notion raises $50 million to build research tools',
+    'Y Combinator company reaches a 2 billion valuation',
+    'A bootstrapped startup was acquired for 80 million',
+  ].filter((s) => !isSecondaryStory(story(s)));
+  assert.deepStrictEqual(missed, [], `should have been admitted: ${missed.join(' | ')}`);
+});
+
+test('a named lab still outranks the exclusion', () => {
+  // Tier one's rule is unchanged: OpenAI doing something is AI news even when
+  // the story also mentions an excluded subject.
+  assert.ok(isAiStory(story('OpenAI bans crypto trading bots from its API')));
+});

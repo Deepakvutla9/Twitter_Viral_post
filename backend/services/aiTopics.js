@@ -79,9 +79,23 @@ const JOBS_SIGNAL = new RegExp([
 // on earth is "AI-powered" now, so this admits nothing by itself.
 const WEAK_AI_SIGNAL = /\b(a\.?i\.?|artificial intelligence|algorithms?|automation|chips?|gpus?|data ?centers?|compute)\b/i;
 
-// Subjects that carry AI vocabulary but are not AI news for this audience:
-// crypto, gadget reviews, gaming, and the endless phone cycle.
-const OFF_TOPIC_SIGNAL = /\b(crypto|bitcoin|ethereum|nft|blockchain|web3|token sale|iphone \d|galaxy s\d{2}|pixel \d|headphones?|earbuds?|smartwatch|console|playstation|xbox|nintendo|netflix|streaming service)\b/i;
+// Subjects that carry AI or startup vocabulary but are not this account's news:
+// crypto and speculation, gadget reviews, gaming, and the endless phone cycle.
+//
+// The speculation group is here because of the funding bucket, not the AI one.
+// "Raises $300 million" reads as a startup success story whatever the company
+// does, so a prediction market or a betting app clears the second tier on the
+// money alone. Naming the business excludes it; a company that merely takes
+// investment from a fund is untouched.
+const OFF_TOPIC_SIGNAL = new RegExp(
+  [
+    /\b(?:crypto|bitcoin|ethereum|nft|blockchain|web3|token sale|stablecoins?|memecoins?)\b/,
+    /\b(?:prediction markets?|polymarket|kalshi|sports ?book|betting|gambling|casino|meme stocks?|day trading|forex)\b/,
+    /\b(?:iphone \d|galaxy s\d{2}|pixel \d|headphones?|earbuds?|smartwatch)\b/,
+    /\b(?:console|playstation|xbox|nintendo|netflix|streaming service)\b/,
+  ].map((r) => r.source).join('|'),
+  'i',
+);
 
 const BUCKETS = {
   labs: { test: LAB_SIGNAL, weight: 30 },
