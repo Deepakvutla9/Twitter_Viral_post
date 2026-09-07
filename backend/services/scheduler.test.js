@@ -78,12 +78,14 @@ test('totalPosted tracks successful runs', () => {
   assert.equal(getStatus().totalPosted, 3);
 });
 
-test('refuses to publish a context slide that is too thin', async () => {
+test('refuses to publish a context slide outside the length gate', async () => {
   // The failure that shipped one-sentence carousels to Instagram: scoring ran
-  // but nothing acted on it.
-  nextQuality = { score: 60, warnings: ['Detail body should be 70-115 words.'], checks: { bodyLengthOk: false, bodyWordCount: 27 } };
+  // but nothing acted on it. The gate is two-sided — an over-long body renders
+  // too small to read on a phone — so the message names the range rather than
+  // calling every rejection thin.
+  nextQuality = { score: 60, warnings: ['Detail body should be 70-95 words.'], checks: { bodyLengthOk: false, bodyWordCount: 27 } };
   const before = posts;
-  await assert.rejects(() => runPipeline({ force: true }), /too thin to publish.*27 words/s);
+  await assert.rejects(() => runPipeline({ force: true }), /Content rejected.*27 words, needs 70-95/s);
   assert.equal(posts, before, 'nothing may reach Instagram when the content is thin');
   nextQuality = goodQuality;
 });

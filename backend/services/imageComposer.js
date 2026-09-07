@@ -468,7 +468,7 @@ function buildContextSlide(slide, imgBase64, slideNum, totalSlides, brand) {
   // Body text — vertically centered with headroom + footroom
   // Body text — vertically centered with headroom + footroom.
   //
-  // The context slide is written to 70-115 words, but 48px type only fits about
+  // The context slide is written to 70-90 words, but 48px type only fits about
   // 280 characters here — roughly one sentence. The old code quietly trimmed
   // everything past that to the last complete sentence, which is why posts went
   // out reading as incomplete. Shrink the type until the WHOLE body fits

@@ -128,7 +128,7 @@ function buildPrompt(article, account, corrections) {
   const correctionBlock = corrections?.length
     ? `YOUR PREVIOUS ATTEMPT WAS REJECTED. Fix exactly these problems and keep everything else:
 ${corrections.map((w) => `- ${w}`).join(String.fromCharCode(10))}
-The body being too short is the most common failure: COUNT the words and make sure the context slide is genuinely 70-115 words across 4-6 full sentences.
+COUNT the words: the context slide must land between 70 and 90 words across 4-6 full sentences. Both ends are rejected — under 70 reads as a broken post, over 90 renders too small to read on a phone, and anything past 95 fails outright. If the story has more to say than fits, move it to Slide 3 rather than stretching Slide 2.
 
 `
     : '';

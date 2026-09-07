@@ -179,7 +179,7 @@ async function runPipeline({ force = false, account: given, slot = null, slotSta
     // recoverable, a thin carousel sitting on the grid is not.
     if (REQUIRE_QUALITY && !quality?.checks?.bodyLengthOk) {
       throw new Error(
-        `Content too thin to publish — context slide is ${words} words, needs 70-115. ` +
+        `Content rejected — context slide is ${words} words, needs 70-95. ` +
         (quality?.warnings || []).join(' '),
       );
     }
