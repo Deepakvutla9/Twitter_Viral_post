@@ -29,6 +29,23 @@ function slotPlan() {
   return parsed;
 }
 /**
+ * The pools this account publishes, in slot order.
+ *
+ * Also the answer to "may this account post tech news at all", which is why it
+ * is separate from pickSource: the empty-pool fallback has to ask that question
+ * without asking which pool today's slot happens to land on.
+ */
+function effectivePlan(account = null) {
+  // The account's own plan wins. Two accounts sharing one global SLOT_PLAN would
+  // draw from the same pool in the same slot, which is how two handles end up
+  // posting the same story on the same schedule.
+  const own = Array.isArray(account?.slotPlan)
+    ? account.slotPlan.filter((s) => SOURCES.includes(s))
+    : [];
+  return own.length ? own : slotPlan();
+}
+
+/**
  * Chooses which pool this run draws from, so one account can carry tech, visa
  * and Trump news without any of them crowding the others out.
  *
@@ -43,13 +60,7 @@ function slotPlan() {
 function pickSource(now = new Date(), account = null) {
   const forced = process.env.CONTENT_SOURCE;
   if (SOURCES.includes(forced)) return forced;
-  // The account's own plan wins. Two accounts sharing one global SLOT_PLAN would
-  // draw from the same pool in the same slot, which is how two handles end up
-  // posting the same story on the same schedule.
-  const own = Array.isArray(account?.slotPlan)
-    ? account.slotPlan.filter((s) => SOURCES.includes(s))
-    : [];
-  const plan = own.length ? own : slotPlan();
+  const plan = effectivePlan(account);
   return plan[Math.floor(now.getUTCHours() / 6) % plan.length];
 }
 
@@ -119,13 +130,17 @@ async function runPipeline({ force = false, account: given, slot = null, slotSta
     const source = pickSource(new Date(), account);
     console.log(`[Pipeline] Source for this run: ${source} (as ${account.handle}, trigger: ${trigger}${slot ? `, slot ${slot}` : ''})`);
 
-    // Visa news falls back to the tech pool rather than failing the slot — a
-    // missed post is worse than an off-topic one, and the feeds occasionally
-    // have nothing new that clears the dedupe.
-    // A themed pool falls back to tech rather than failing the slot: a missed
-    // post is worse than an off-topic one, and the feeds occasionally have
-    // nothing new that clears the dedupe.
+    // A themed pool that comes up empty — the feeds occasionally have nothing
+    // new that clears the dedupe — falls back to tech, but only for an account
+    // that publishes tech anyway. See techIsOnPlan below.
     const FETCHERS = { visa: fetchVisaArticle, trump: fetchTrumpArticle };
+    // Whether the tech pool is a legitimate substitute for this account at all.
+    // "A missed post is worse than an off-topic one" only holds for an account
+    // that publishes tech anyway; for a single-subject handle the off-topic post
+    // is the worse outcome, and it is permanent — an Instagram post cannot be
+    // edited after publishing. So the fallback is offered to accounts whose own
+    // plan already includes tech, and to nobody else.
+    const techIsOnPlan = effectivePlan(account).includes('tech');
     let article;
     // A slot that could not get the topic it planned still posts, but it says so.
     // This fallback ran for weeks in silence while a themed account published
@@ -135,6 +150,16 @@ async function runPipeline({ force = false, account: given, slot = null, slotSta
       try {
         article = await FETCHERS[source](account);
       } catch (err) {
+        if (!techIsOnPlan) {
+          // Fails the slot deliberately. The account publishes one subject, so
+          // there is nothing to substitute; the run goes red and the handle
+          // stays on topic rather than quietly going off it.
+          throw new Error(
+            `${source} pool empty for ${slug} (${err.message}) — and its plan ` +
+            `(${effectivePlan(account).join(', ')}) has no tech pool to fall back to, ` +
+            'so this slot is skipped rather than posting off-topic news.',
+          );
+        }
         offPlan = { planned: source, reason: err.message };
         console.warn(`[Pipeline] ⚠ ${source} pool empty (${err.message}) — falling back to tech OFF PLAN.`);
         article = await fetchTrendingArticle(account);
@@ -586,4 +611,4 @@ function autoResume() {
   startScheduler(defaultCron);
 }
 
-module.exports = { runPipeline, runAllAccounts, getTriggerCron: () => [...TRIGGER_CRON], startScheduler, stopScheduler, getStatus, setLastResult, autoResume, pickSource, slotPlan };
+module.exports = { runPipeline, runAllAccounts, getTriggerCron: () => [...TRIGGER_CRON], startScheduler, stopScheduler, getStatus, setLastResult, autoResume, pickSource, slotPlan, effectivePlan };

@@ -2,11 +2,27 @@ name: Carousel AI — scheduled post
 
 # Render's free tier sleeps the instance after ~15 minutes idle, and a sleeping
 # instance runs no in-process cron. This workflow is the reliable clock: it
-# wakes the backend and triggers the pipeline every 6 hours (00/06/12/18 UTC),
-# alternating tech and visa news slot by slot.
+# wakes the backend and asks which accounts are due.
+#
+# It does not decide what gets posted — accounts.cron does. This only has to
+# fire at least as often as the accounts need, because an account is only ever
+# offered the slots this workflow delivers.
+#
+#   0 */6 * * *  00/06/12/18 UTC — the original six-hourly grid
+#   0 1  * * *   21:00 America/New_York while EDT is in force
+#   0 2  * * *   21:00 America/New_York while EST is in force
+#
+# GitHub cron is UTC-only and has no notion of DST, so a fixed local hour needs
+# both of the UTC hours it maps to across the year. Only one of them is the
+# account's 21:00 on any given date; at the other the backend finds it has
+# already covered the slot its own cron named and skips it. That dedupe is per
+# account and history-backed (postedSince), so a spare wake-up is cheap and
+# never doubles a post.
 on:
   schedule:
     - cron: '0 */6 * * *'
+    - cron: '0 1 * * *'
+    - cron: '0 2 * * *'
   workflow_dispatch:
     inputs:
       account:
