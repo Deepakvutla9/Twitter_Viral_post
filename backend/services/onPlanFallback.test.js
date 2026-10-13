@@ -82,6 +82,10 @@ test('a visa-only account still posts normally when its pool has news', async ()
 });
 
 test('an account with tech on its plan keeps the old fallback', async () => {
+  // The pool is chosen from the UTC hour, and this account plans visa then tech.
+  // Left to the clock, the test only meant "visa came up empty" in the hours that
+  // happened to land on visa, and failed in the others. Pin the slot it is about.
+  process.env.CONTENT_SOURCE = 'visa';
   const out = await runPipeline({ force: true, account: MIXED, trigger: 'test' });
   assert.equal(out.success, true, 'a mixed account still posts rather than missing the slot');
   assert.equal(out.offPlan, true, 'and says so');
