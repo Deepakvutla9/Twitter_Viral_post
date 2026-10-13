@@ -76,3 +76,48 @@ test('a terse Federal Register title still matches the saga it belongs to', () =
   );
   assert.match(g.blocked({ title: 'Optional Practical Training Fees' }), /story line/);
 });
+
+const { coverageCounts, coverageBonus, matchesTrend } = require('./storyDedupe');
+
+test('the same event across outlets counts each outlet once', () => {
+  const items = [
+    { title: 'US proposes $70,000 fee for OPT', source: 'PIE News' },
+    { title: 'Trump administration wants $70K charge on Optional Practical Training', source: 'HT World' },
+    { title: 'OPT fee of $70,000: what students need to know', source: 'ET NRI' },
+    { title: 'OPT fee of $70,000: what students need to know', source: 'ET NRI' },   // same outlet twice
+    { title: 'Hyderabad consulate adds F-1 interview slots', source: 'TOI NRI' },
+  ];
+  const c = coverageCounts(items);
+  assert.equal(c.get(items[0]), 3);
+  assert.equal(c.get(items[4]), 1);
+});
+
+test('three different OPT articles are not three outlets on one story', () => {
+  const items = [
+    { title: 'OPT employers must file new I-983 evaluations', source: 'A' },
+    { title: 'Optional Practical Training fee comment period opens', source: 'B' },
+    { title: 'STEM OPT unemployment limit explained', source: 'C' },
+  ];
+  const c = coverageCounts(items);
+  for (const i of items) assert.equal(c.get(i), 1);
+});
+
+test('coverage bonus grows with outlets and is capped', () => {
+  assert.equal(coverageBonus(1), 0);
+  assert.ok(coverageBonus(3) > coverageBonus(2));
+  assert.equal(coverageBonus(9), coverageBonus(4));
+});
+
+test('a trending term must appear whole in the headline', () => {
+  assert.ok(matchesTrend({ title: 'OPT fee hike: what students must know' }, ['opt fee']));
+  assert.ok(!matchesTrend({ title: 'OPT employers must file new forms' }, ['opt fee']));
+  assert.ok(!matchesTrend({ title: 'Anything about OPT' }, ['opt']));   // one word is too loose
+});
+
+test('headlines that differ in plurals and abbreviations are still one event', () => {
+  const items = [
+    { title: 'US probes 9 universities over J-1 exchange visas as Trump tightens student rules', source: 'IE Education' },
+    { title: 'US probes nine unis over J-1 visas and suspends firms’ green card pathway', source: 'PIE News' },
+  ];
+  assert.equal(coverageCounts(items).get(items[0]), 2);
+});

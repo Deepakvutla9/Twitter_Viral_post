@@ -49,6 +49,7 @@ const PHRASES = [
   [/visa bulletin/g, ' visabulletin '],
   [/work permits?|employment authori[sz]ation/g, ' ead '],
   [/\bu\.?s\.?\b|united states|america(?:n)?/g, ' us '],
+  [/\b(?:universit(?:y|ies)|unis?|colleges?)\b/g, ' univers '],
 ];
 
 // "$70,000", "70,000", "70000", "$70k", "70 thousand" all become 70000.
@@ -63,7 +64,8 @@ function normaliseNumbers(text) {
 function stem(w) {
   if (w.length > 5 && w.endsWith('ing')) return w.slice(0, -3);
   if (w.length > 4 && w.endsWith('ies')) return `${w.slice(0, -3)}y`;
-  if (w.length > 4 && w.endsWith('es')) return w.slice(0, -2);
+  // Only sibilant endings take -es (boxes, searches); probes, rules, fees take -s.
+  if (w.length > 4 && /(?:s|x|z|ch|sh)es$/.test(w)) return w.slice(0, -2);
   if (w.length > 3 && w.endsWith('s') && !w.endsWith('ss')) return w.slice(0, -1);
   if (w.length > 4 && w.endsWith('ed')) return w.slice(0, -2);
   return w;
@@ -137,6 +139,15 @@ function relation(candidate, posted) {
   // The same distinctive figure on the same program is the same announcement,
   // whatever each outlet called it.
   if (share(candidate.numbers, posted.numbers) && share(candidate.programs, posted.programs)) return 'event';
+  // Same program and a good share of the wording: one story told twice, even when
+  // each outlet pads it with different context.
+  // Needs four shared words so a terse title ("Optional Practical Training Fees")
+  // is judged as a story line, not claimed as the same event on two words.
+  if (share(candidate.programs, posted.programs)) {
+    let shared = 0;
+    for (const w of candidate.tokens) if (posted.tokens.has(w)) shared += 1;
+    if (shared >= 4 && jaccard(candidate.tokens, posted.tokens) >= 0.25) return 'event';
+  }
   if (share(candidate.programs, posted.programs) && share(candidate.angles, posted.angles)) return 'saga';
   return null;
 }
@@ -180,3 +191,56 @@ function buildGuard(recent, now = Date.now()) {
 }
 
 module.exports = { buildGuard, describe, relation, slugToText, tokenise, EVENT_DAYS, SAGA_DAYS };
+
+// ── VIRALITY SIGNALS ─────────────────────────────────────────────────────────
+//
+// When ET, TOI, Hindustan Times and PIE News all run the same development within
+// a day, that is the story the audience is looking for. Counting it needs no new
+// source: the feeds are already fetched, and relation() already knows when two
+// headlines are one event.
+//
+// Reddit was tried as an engagement signal and dropped: unauthenticated it
+// rate-limits (429) after a request or two from a laptop, would be worse from a
+// shared host, and its RSS carries no upvote counts anyway.
+
+const COVERAGE_BONUS = Number(process.env.COVERAGE_BONUS) || 15;
+const COVERAGE_CAP = 4;      // outlets beyond the fourth add nothing
+const TREND_BONUS = Number(process.env.TREND_BONUS) || 20;
+
+/**
+ * Per-item count of distinct outlets that ran the same event.
+ * `items` need { title, source }. Returns a Map(item -> outlets, itself included).
+ */
+function coverageCounts(items) {
+  const described = items.map((item) => ({ item, d: describe(item.title || ''), source: item.source || item.url }));
+  const counts = new Map();
+  for (const a of described) {
+    const outlets = new Set([a.source]);
+    if (a.d.tokens.size >= 2) {
+      for (const b of described) {
+        if (b === a || outlets.has(b.source) || b.d.tokens.size < 2) continue;
+        // 'event' only. A saga match is the same subject, not the same news, and
+        // would count three different OPT articles as three outlets on one story.
+        if (relation(a.d, b.d) === 'event') outlets.add(b.source);
+      }
+    }
+    counts.set(a.item, outlets.size);
+  }
+  return counts;
+}
+
+const coverageBonus = (outlets) => Math.min(Math.max(outlets - 1, 0), COVERAGE_CAP - 1) * COVERAGE_BONUS;
+
+/** Does a trending search term appear whole in this headline? */
+function matchesTrend(item, trendTerms) {
+  const t = tokenise(item.title || '');
+  return trendTerms.some((term) => {
+    const words = [...tokenise(term)];
+    return words.length >= 2 && words.every((w) => t.has(w));
+  });
+}
+
+module.exports.coverageCounts = coverageCounts;
+module.exports.coverageBonus = coverageBonus;
+module.exports.matchesTrend = matchesTrend;
+module.exports.TREND_BONUS = TREND_BONUS;

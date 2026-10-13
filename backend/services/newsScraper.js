@@ -7,7 +7,9 @@ const cheerio = require('cheerio');
 // key that reads nothing once RLS is enabled — and outside the reach of the
 // production fail-closed check.
 const { getSupabase } = require('./supabase');
-const { buildGuard, EVENT_DAYS } = require('./storyDedupe');
+const {
+  buildGuard, EVENT_DAYS, coverageCounts, coverageBonus, matchesTrend, TREND_BONUS,
+} = require('./storyDedupe');
 
 // Dedupe memory is per account. A story one account posted stays available to
 // every other account, so each of these queries is scoped by slug — reads,
@@ -167,6 +169,21 @@ async function loadRepeatGuard(account) {
     );
   }
   return buildGuard((data || []).map((r) => ({ url: r.url, postedAt: r.posted_at })));
+}
+
+// Daily trending searches, India and US. Thin (ten terms a country, mostly
+// sport) but free, keyless and fast, so it is a small bonus and never a
+// requirement: any failure reads as "no trends", not as a failed run.
+let trendCache = { at: 0, terms: [] };
+async function fetchTrendTerms() {
+  if (Date.now() - trendCache.at < 30 * 60 * 1000) return trendCache.terms;
+  const feeds = await Promise.all(['IN', 'US'].map((geo) =>
+    axios.get(`https://trends.google.com/trending/rss?geo=${geo}`, { timeout: 8000, headers: HEADERS })
+      .then((r) => xml2js.parseStringPromise(r.data))
+      .then((x) => (x?.rss?.channel?.[0]?.item || []).map((i) => String(i.title?.[0] || '')))
+      .catch(() => [])));
+  trendCache = { at: Date.now(), terms: feeds.flat().filter(Boolean) };
+  return trendCache.terms;
 }
 
 /** Drops the candidates the guard calls a repeat, saying why for each. */
@@ -983,6 +1000,13 @@ async function fetchVisaArticle(account) {
 
   const history = await loadExclusions(account);
   const guard = await loadRepeatGuard(account);
+  // Counted over everything the feeds returned, before dedupe collapses the
+  // copies: the copies are the signal. A story several outlets ran is the one
+  // the audience is hearing about.
+  const coverage = coverageCounts(
+    allItems.filter((i) => i.title && isIndianImmigrationStory(i, { sourceIsDedicated: i.dedicated })),
+  );
+  const trends = await fetchTrendTerms();
   const seen = new Set();
   const seenTitles = new Set();
   const THIS_YEAR = new Date().getFullYear();
@@ -1005,7 +1029,14 @@ async function fetchVisaArticle(account) {
       if (key) seenTitles.add(key);
       return true;
     })
-    .map((item) => ({ ...item, score: scoreVisaArticle(item) }));
+    .map((item) => {
+      const outlets = coverage.get(item) || 1;
+      return {
+        ...item,
+        outlets,
+        score: scoreVisaArticle(item) + coverageBonus(outlets) + (matchesTrend(item, trends) ? TREND_BONUS : 0),
+      };
+    });
 
   // Story-level repeats out, and a program that was in the last few posts ranked
   // down so the beat rotates instead of running OPT on consecutive days.
@@ -1017,7 +1048,7 @@ async function fetchVisaArticle(account) {
   if (!candidates.length) throw new Error('No fresh visa news found.');
 
   for (const item of candidates.slice(0, VISA_SCRAPE_ATTEMPTS)) {
-    console.log(`[Visa] Trying: "${item.title}" (score:${item.score}) @ ${item.source}`);
+    console.log(`[Visa] Trying: "${item.title}" (score:${item.score}, ${item.outlets} outlet${item.outlets === 1 ? '' : 's'}) @ ${item.source}`);
     try {
       const { text: fullText, ogImage } = await scrapeArticle(item.url);
       if (!hasRealContent(fullText)) {
