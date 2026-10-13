@@ -7,6 +7,7 @@ const cheerio = require('cheerio');
 // key that reads nothing once RLS is enabled — and outside the reach of the
 // production fail-closed check.
 const { getSupabase } = require('./supabase');
+const { buildGuard, EVENT_DAYS } = require('./storyDedupe');
 
 // Dedupe memory is per account. A story one account posted stays available to
 // every other account, so each of these queries is scoped by slug — reads,
@@ -136,6 +137,45 @@ async function loadExclusions(account) {
   ]);
   for (const url of others) own.add(url);
   return own;
+}
+
+/**
+ * Story-level repeat guard for this account (see storyDedupe.js).
+ *
+ * loadHistory answers "was this exact URL posted"; this answers "was this news
+ * posted", which is what a follower sees. It reads the account's own recent
+ * posts and fails closed like the other history reads: an unreadable history
+ * must not become "nothing to avoid".
+ */
+async function loadRepeatGuard(account) {
+  const slug = requireAccount(account, 'loadRepeatGuard');
+  const db = getSupabase();
+  if (!db) return buildGuard([]);
+
+  const since = new Date(Date.now() - EVENT_DAYS * 86400000).toISOString();
+  const { data, error } = await db
+    .from('posted_urls')
+    .select('url, posted_at')
+    .eq('account', slug)
+    .gte('posted_at', since)
+    .order('posted_at', { ascending: false });
+
+  if (error) {
+    throw new Error(
+      `[News] could not read recent posts for "${slug}" (${error.message}). ` +
+      'Refusing to continue: without them the same story can run twice under different URLs.',
+    );
+  }
+  return buildGuard((data || []).map((r) => ({ url: r.url, postedAt: r.posted_at })));
+}
+
+/** Drops the candidates the guard calls a repeat, saying why for each. */
+function dropRepeats(items, guard, label) {
+  return items.filter((item) => {
+    const why = guard.blocked(item);
+    if (why) console.log(`[${label}] Skipping repeat (${why}): "${item.title}"`);
+    return !why;
+  });
 }
 
 /**
@@ -646,13 +686,14 @@ async function fetchNewsArticle(topic, exclude = [], account) {
 
   // Filter, deduplicate, score
   const history    = await loadExclusions(account);
+  const guard      = await loadRepeatGuard(account);
   const excludeSet = new Set(exclude);
   const seen       = new Set();
 
   const THIS_YEAR = new Date().getFullYear();
   const SIX_MONTHS_AGO = Date.now() - 180 * 24 * 60 * 60 * 1000;
 
-  const candidates = allItems
+  const fresh = allItems
     .filter((item) => {
       if (!item.url || seen.has(item.url)) return false;
       if (history.has(item.url) || excludeSet.has(item.url)) return false;
@@ -672,6 +713,7 @@ async function fetchNewsArticle(topic, exclude = [], account) {
     })
     .map((item) => ({ ...item, score: scoreArticle(item, topic) }))
     .sort((a, b) => b.score - a.score);
+  const candidates = dropRepeats(fresh, guard, 'News');
 
   console.log(`[News] ${candidates.length} unique candidates after filtering`);
   const pool = poolForAccount(candidates, account, 'News');
@@ -752,6 +794,7 @@ async function fetchTrendingFallback(account) {
 async function fetchTrendingArticle(account) {
   console.log('[Trending] Fetching HN front page top stories...');
   const history = await loadExclusions(account);
+  const guard = await loadRepeatGuard(account);
 
   const topItems = await fetchHNTopStories();
 
@@ -759,6 +802,7 @@ async function fetchTrendingArticle(account) {
   const scored = topItems
     .filter((item) => {
       if (history.has(item.url)) return false;
+      if (guard.blocked(item)) return false;
       try {
         const host = new URL(item.url).hostname.replace('www.', '');
         return TRUSTED_DOMAINS.some((d) => host.includes(d));
@@ -938,11 +982,12 @@ async function fetchVisaArticle(account) {
   console.log(`[Visa] Total raw articles: ${allItems.length} (${federalRegister.length} from the Federal Register)`);
 
   const history = await loadExclusions(account);
+  const guard = await loadRepeatGuard(account);
   const seen = new Set();
   const seenTitles = new Set();
   const THIS_YEAR = new Date().getFullYear();
 
-  const candidates = allItems
+  const ranked = allItems
     .filter((item) => {
       if (!item.url || seen.has(item.url) || history.has(item.url)) return false;
       const key = titleKey(item.title);
@@ -960,7 +1005,12 @@ async function fetchVisaArticle(account) {
       if (key) seenTitles.add(key);
       return true;
     })
-    .map((item) => ({ ...item, score: scoreVisaArticle(item) }))
+    .map((item) => ({ ...item, score: scoreVisaArticle(item) }));
+
+  // Story-level repeats out, and a program that was in the last few posts ranked
+  // down so the beat rotates instead of running OPT on consecutive days.
+  const candidates = dropRepeats(ranked, guard, 'Visa')
+    .map((item) => ({ ...item, score: item.score - guard.penalty(item) }))
     .sort((a, b) => b.score - a.score);
 
   console.log(`[Visa] ${candidates.length} visa candidates after filtering`);
@@ -1041,12 +1091,14 @@ async function fetchTrumpArticle(account) {
   console.log(`[Trump] Total raw articles: ${allItems.length}`);
 
   const history = await loadExclusions(account);
+  const guard = await loadRepeatGuard(account);
   const seen = new Set();
   const THIS_YEAR = new Date().getFullYear();
 
   const candidates = allItems
     .filter((item) => {
       if (!item.url || seen.has(item.url) || history.has(item.url)) return false;
+      if (guard.blocked(item)) return false;
       const hay = `${item.title} ${item.summary}`;
       if (!TRUMP_GATE.test(hay)) return false;
       // Visa stories belong to the visa pool — posting them here would double up.
