@@ -138,8 +138,48 @@ async function refreshToken(account) {
   return { ok: true, days, token: access_token, persisted: true, won: true };
 }
 
-// Upload image to catbox.moe (free, no auth, permanent hosting)
+const SLIDES_BUCKET = 'slides';
+const UPLOAD_TIMEOUT_MS = 30000;
+
+// Our own Supabase Storage bucket, the primary host. Instagram only needs a public
+// URL to fetch each slide from. This used to rely on catbox.moe alone, and when
+// that host timed out on uploads every post failed at this step.
+async function uploadToSupabase(filepath) {
+  const db = getSupabase();
+  if (!db) throw new Error('Supabase is not configured');
+  const name = `${Date.now()}-${path.basename(filepath)}`;
+  const upload = db.storage.from(SLIDES_BUCKET).upload(name, fs.readFileSync(filepath), {
+    contentType: /\.png$/i.test(filepath) ? 'image/png' : 'image/jpeg',
+    upsert: false,
+  });
+  const timer = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(`upload timed out after ${UPLOAD_TIMEOUT_MS}ms`)), UPLOAD_TIMEOUT_MS);
+  });
+  const { error } = await Promise.race([upload, timer]);
+  if (error) throw new Error(error.message);
+  return db.storage.from(SLIDES_BUCKET).getPublicUrl(name).data.publicUrl;
+}
+
+// Tries each host in turn. A post is worth a second attempt elsewhere: Instagram
+// posts cannot be edited, but a failed run costs a whole slot.
 async function uploadImageToHost(filepath) {
+  const hosts = [['Supabase', uploadToSupabase], ['catbox', uploadToCatbox]];
+  const failures = [];
+  for (const [label, upload] of hosts) {
+    try {
+      const url = await upload(filepath);
+      console.log(`[Instagram] Uploaded image (${label}) → ${url}`);
+      return url;
+    } catch (e) {
+      console.warn(`[Instagram] ${label} upload failed: ${e.message}`);
+      failures.push(`${label}: ${e.message}`);
+    }
+  }
+  throw new Error(`Could not upload ${path.basename(filepath)} to any image host (${failures.join('; ')})`);
+}
+
+// Upload image to catbox.moe (free, no auth, permanent hosting)
+async function uploadToCatbox(filepath) {
   const form = new FormData();
   form.append('reqtype', 'fileupload');
   form.append('fileToUpload', fs.createReadStream(filepath));
@@ -147,8 +187,8 @@ async function uploadImageToHost(filepath) {
     headers: form.getHeaders(),
     timeout: 30000,
   });
-  const url = res.data.trim();
-  console.log(`[Instagram] Uploaded image → ${url}`);
+  const url = String(res.data).trim();
+  if (!/^https?:\/\//.test(url)) throw new Error(`unexpected response: ${url.slice(0, 80)}`);
   return url;
 }
 
@@ -230,4 +270,4 @@ async function postCarousel(imagePaths, caption, account) {
   return postId;
 }
 
-module.exports = { postCarousel, checkToken, refreshToken };
+module.exports = { postCarousel, checkToken, refreshToken, uploadImageToHost };
